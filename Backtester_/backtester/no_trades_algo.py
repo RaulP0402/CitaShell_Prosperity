@@ -107,6 +107,9 @@ class Trader:
         Only method required. It takes all buy and sell orders for all symbols as an input,
         and outputs a list of orders to be sent
         """
+
+        print("HELLO")
+
         # Initialize the method output dict as an empty dict
         result = {}
         self.logger.flush(state, result, trader_data)

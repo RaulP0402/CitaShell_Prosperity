@@ -1,6 +1,4 @@
-# # from old_algo_JG import Trader
-# from collect_indicators import Trader
-from static_regression_fixed_price_history import Trader
+from ...Raul_Testing.Driver_v1 import Trader
 
 from datamodel import *
 from typing import Any  #, Callable
