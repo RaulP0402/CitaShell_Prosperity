@@ -560,8 +560,8 @@ class Trader:
         undercut_buy = best_buy_pr + 1
         undercut_sell = best_sell_pr - 1
 
-        bid_pr = min(undercut_buy, acc_bid - 1)  # we will shi ft this by 1 to beat this price
-        sell_pr = max(undercut_sell, acc_ask + 1)
+        bid_pr = min(undercut_buy, acc_bid - 2)  # we will shi ft this by 1 to beat this price
+        sell_pr = max(undercut_sell, acc_ask + 2)
 
         if (cpos < self.POSITION_LIMIT['AMETHYSTS']) and (self.position[product] < 0):
             num = min(40, self.POSITION_LIMIT['AMETHYSTS'] - cpos)
