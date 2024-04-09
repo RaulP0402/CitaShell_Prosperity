@@ -506,7 +506,7 @@ class Trader:
         # coef = [-0.01869561, 0.0455032, 0.16316049, 0.8090892]
         # intercept = 4.481696494462085
 
-        #               p   d  q
+        #               q   d  p
         # most success 10, -1, 4 thus far
         # highest q val u can go up to is 4
         
