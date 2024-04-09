@@ -228,6 +228,7 @@ class Trader:
                 # .append(-60.31162 -0.04426*market_sentiment + 0.09908*lower_BB + 0.91190*middle_BB + 13.02079*RSI + 0.20754*MACD)
                 # .append(-83.38018 + 1.73501*market_sentiment + 0.12058*lower_BB + 0.89438*middle_BB + 18.41226*RSI -0.05367*MACD)
                 fair_value_regression = np.mean(self.regression_history[product])
+                print(f'fair value regression is : {fair_value_regression}')
                 if(len(self.regression_history[product]) > Parameters["n_Model"]): self.regression_history[product].pop(0)        
 
                 # add indicators to trader data

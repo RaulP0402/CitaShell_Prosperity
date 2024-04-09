@@ -135,7 +135,6 @@ class OrdinaryLeastSquares():
     def fit(self, X, y):
         # if len(X) == 1: 
         #     X = self._reshape_x(X)
-
         X = self._concatenate_ones(X)
         self.coef = np.linalg.pinv(X.transpose().dot(X)).dot(X.transpose()).dot(y)
 
@@ -144,6 +143,7 @@ class OrdinaryLeastSquares():
         other_betas = self.coef[1:]
         prediction = b0
         # coef = [0.192259,0.250758,0.224051,0.332031]
+        # print(f'coefficients : {self.coef}')
 
         for xi, bi in zip(entry, other_betas):
             prediction += (bi*xi)
@@ -167,12 +167,12 @@ Parameters = {"n_MA":       50,  # time-span for MA
               "days_ADX":   5,   # how many time steps to consider a "day" in ADX
               "n_ADX":      5,   # time-span for smoothing in ADX
               "n_Model":    2,    # time-span for smoothing the regression model
-              "Intercept":  -29.53989, # regression parameters
-              "coeff_MS":   -0.03916,
-              "coeff_BB":   0.83486,
-              "coeff_RSI":  2.72222,
-              "coeff_MACD": 0.13197,
-              "coeff_MP":   0.17064
+            #   "Intercept":  -29.53989, # regression parameters
+            #   "coeff_MS":   -0.03916,
+            #   "coeff_BB":   0.83486,
+            #   "coeff_RSI":  2.72222,
+            #   "coeff_MACD": 0.13197,
+            #   "coeff_MP":   0.17064
               }
 
 n = max(Parameters.values())
@@ -240,37 +240,56 @@ class Trader:
 
         osell = OrderedDict(sorted(order_depth.sell_orders.items()))
         obuy = OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
-        logger.print(f'Predicted Price: {fair_price} with sentiment: {sentiment}')
+        # logger.print(f'Predicted Price: {fair_price} with sentiment: {sentiment}')
 
-        # If bullish
-        if sentiment > 0:
+        # # If bullish
+        # if sentiment > 0:
 
-            cpos = self.positions[product]
-            for ask, vol in osell.items():
-                if (ask < fair_price) and cpos < self.limits['STARFRUIT']:
-                # if ((ask < fair_price) or ((self.positions[product] < 0) and ask <= fair_price)) and cpos < self.limits['STARFRUIT']:
-                    order_for = min(-vol, self.limits['STARFRUIT'] - cpos)
-                    cpos += order_for
-                    assert(order_for >= 0)
-                    orders.append(Order(product, ask, order_for))
+        #     cpos = self.positions[product]
+        #     for ask, vol in osell.items():
+        #         if (ask < fair_price) and cpos < self.limits['STARFRUIT']:
+        #         # if ((ask < fair_price) or ((self.positions[product] < 0) and ask <= fair_price)) and cpos < self.limits['STARFRUIT']:
+        #             order_for = min(-vol, self.limits['STARFRUIT'] - cpos)
+        #             cpos += order_for
+        #             assert(order_for >= 0)
+        #             orders.append(Order(product, ask, order_for))
 
-        elif sentiment < 0:
-            cpos = self.positions[product]
-            for bid, vol in obuy.items():
-                if (bid > fair_price) and cpos > -self.limits['STARFRUIT']:
-                # if ((bid > fair_price) or ((self.positions[product]>0) and (bid == fair_price))) and cpos > -self.limits['STARFRUIT']:
-                    order_for = max(-vol, -self.limits['STARFRUIT']-cpos)
-                    # order_for is a negative number denoting how much we will sell
-                    cpos += order_for
-                    assert(order_for <= 0)
-                    orders.append(Order(product, bid, order_for))
+        cpos = self.positions[product]
+        for ask, vol in osell.items():
+            if (ask < fair_price) and cpos < self.limits['STARFRUIT']:
+            # if ((ask < fair_price) or ((self.positions[product] < 0) and ask <= fair_price)) and cpos < self.limits['STARFRUIT']:
+                order_for = min(-vol, self.limits['STARFRUIT'] - cpos)
+                cpos += order_for
+                assert(order_for >= 0)
+                orders.append(Order(product, ask, order_for))
+
+        # elif sentiment < 0:
+        #     cpos = self.positions[product]
+        #     for bid, vol in obuy.items():
+        #         if (bid > fair_price) and cpos > -self.limits['STARFRUIT']:
+        #         # if ((bid > fair_price) or ((self.positions[product]>0) and (bid == fair_price))) and cpos > -self.limits['STARFRUIT']:
+        #             order_for = max(-vol, -self.limits['STARFRUIT']-cpos)
+        #             # order_for is a negative number denoting how much we will sell
+        #             cpos += order_for
+        #             assert(order_for <= 0)
+        #             orders.append(Order(product, bid, order_for))
+        cpos = self.positions[product]
+        for bid, vol in obuy.items():
+            if (bid > fair_price) and cpos > -self.limits['STARFRUIT']:
+            # if ((bid > fair_price) or ((self.positions[product]>0) and (bid == fair_price))) and cpos > -self.limits['STARFRUIT']:
+                order_for = max(-vol, -self.limits['STARFRUIT']-cpos)
+                # order_for is a negative number denoting how much we will sell
+                cpos += order_for
+                assert(order_for <= 0)
+                orders.append(Order(product, bid, order_for))
             
         return orders
 
     def run(self, state: TradingState) -> tuple[dict[Symbol, list[Order]], int, str]:
         conversions = 0
         trader_data = "@"
-        row_dims = 5
+        # row_dims = 50
+        row_dims = 10
         result = defaultdict(list)
 
         for product, position in state.position.items():
@@ -335,12 +354,8 @@ class Trader:
 
                 total_sell_volume, _ = self.values_extract(osell)
                 total_buy_volume, _= self.values_extract(obuy,1)
-            
-                print(f'Total sell vol {total_sell_volume} and total buy vol {total_buy_volume}')
 
-                # indicators = [mid_price, market_sentiment, middle_BB, upper_BB, lower_BB, RSI, MACD]
-                # indicators = [mid_price, middle_BB, upper_BB, lower_BB, RSI, MACD]
-                indicators = [EMA_1, EMA_2, MACD, RSI, total_buy_volume + total_sell_volume, middle_BB, upper_BB, lower_BB]
+                indicators = [lower_BB, middle_BB, upper_BB, RSI, MACD, total_buy_volume + total_sell_volume]
                 regression_matrix = self.regression_matrix[product]
                 regression_matrix.append(indicators)
 
@@ -354,60 +369,11 @@ class Trader:
 
                 model = OrdinaryLeastSquares()
                 model.fit(regression_matrix, Y_value)
-
                 fair_price = model.predict(regression_matrix[-1])
+                # print(f'fair price predicted {fair_price[0]}')
 
                 orders: List[Order] = []
-                orders = self.compute_orders_starfruit(product, order_depth, fair_price, self.starfruit_sentiment)
-
-
-                # self.regression_history[product].append(Parameters["Intercept"] + Parameters["coeff_MS"]*market_sentiment + Parameters["coeff_BB"]*middle_BB + Parameters["coeff_RSI"]*RSI + Parameters["coeff_MACD"]*MACD + Parameters["coeff_MP"]*mid_price)
-                # # Older regressions using more variables (also possibly good)...
-                # # .append(-27.341845 -0.17*market_sentiment -0.004363*lower_BB + 0.800606*middle_BB + 0.066560*RSI + 0.204905*MACD + 0.209055*mid_price)
-                # # .append(-26.76876 -0.17*market_sentiment -0.02954*lower_BB + 0.84520*middle_BB + 0.28838*RSI + 0.26612*MACD + 0.18943*mid_price)
-                # # .append(-60.31162 -0.04426*market_sentiment + 0.09908*lower_BB + 0.91190*middle_BB + 13.02079*RSI + 0.20754*MACD)
-                # # .append(-83.38018 + 1.73501*market_sentiment + 0.12058*lower_BB + 0.89438*middle_BB + 18.41226*RSI -0.05367*MACD)
-                # fair_value_regression = np.mean(self.regression_history[product])
-                # print("fair value regression for starfruit" , fair_value_regression)
-
-            # #     if(len(self.regression_history[product]) > Parameters["n_Model"]): self.regression_history[product].pop(0)        
-
-            # #     # add indicators to trader data
-           
-            # #     trader_data += f'{round(mid_price,4)}{sep}'
-            # #     trader_data += f'{round(market_sentiment,4)}{sep}'
-            # #     trader_data += f'{round(lower_BB,4)}{sep}'
-            # #     trader_data += f'{round(middle_BB,4)}{sep}'
-            # #     trader_data += f'{round(upper_BB,4)}{sep}'
-            # #     trader_data += f'{round(RSI,4)}{sep}'
-            # #     trader_data += f'{round(MACD,6)}{sep}'
-            # #     trader_data += f'{round(fair_value_regression,4)}@'     
-
-
-            # # place orders
-            # bid = round(fair_value_regression) - 2 
-            # ask = round(fair_value_regression) + 2 
-
-            # bid_volume_percentage = 1
-            # ask_volume_percentage = 1
-
-            # if(product == "STARFRUIT"):
-            #     bid_volume_percentage = 0.5 + 0.2*np.tanh(fair_value_regression - mid_price)
-            #     ask_volume_percentage = 0.5 + 0.2*np.tanh(mid_price - fair_value_regression)
-            
-            # bid_volume = int(bid_volume_percentage*(Limit - state.position.get(product, 0)))
-            # ask_volume = int(ask_volume_percentage*(-Limit - state.position.get(product, 0)))
-
-            # if (state.position.get(product, 0) / Limit > 0.8):
-            #     bid -= 1
-            #     ask -= 1
-            # if (state.position.get(product, 0) / Limit < -0.8):
-            #     bid += 1
-            #     ask += 1
-            
-            # # orders.append(Order(product, bid, bid_volume))
-            # # orders.append(Order(product, ask, ask_volume))
-
+                orders = self.compute_orders_starfruit(product, order_depth, fair_price[0], self.starfruit_sentiment)
             
             result[product] = orders               
 
