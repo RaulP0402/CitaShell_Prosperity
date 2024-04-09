@@ -1,14 +1,12 @@
 from typing import Dict
 from collections import defaultdict
 import json
-from datamodel import ProsperityEncoder, Trade
 from typing import Any
 import numpy as np
-from datamodel import Symbol
 from typing import List
-from datamodel import OrderDepth, Order, TradingState
 import collections
 import copy
+from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState, UserId
 
 class Logger:
     # Set this to true, if u want to create
@@ -78,7 +76,6 @@ class Logger:
                 compressed.append([order.symbol, order.price, order.quantity])
 
         return compressed
-
 # This is provisionary, if no other algorithm works.
 # Better to loose nothing, then dreaming of a gain.
 
@@ -509,9 +506,11 @@ class Trader:
         # coef = [-0.01869561, 0.0455032, 0.16316049, 0.8090892]
         # intercept = 4.481696494462085
 
+        #               p   d  q
+        # most success 10, -1, 4 thus far
+        # highest q val u can go up to is 4
         
-        # most success 5 , 0 , 3 thus far
-        model = ARIMA(7, 0, 3)
+        model = ARIMA(10, -1, 4)
         pred = model.fit_predict(self.starfruit_cache)
         forecasted_price = model.forecast(pred, 1)[-1]
 
@@ -553,7 +552,7 @@ class Trader:
                 order_for = min(-vol, self.POSITION_LIMIT['AMETHYSTS'] - cpos)
                 cpos += order_for
                 assert (order_for >= 0)
-                orders.append(Order(product, ask, order_for))
+                orders.append(Order(product, int(round(ask)), order_for))
 
         mprice_actual = (best_sell_pr + best_buy_pr) / 2
         mprice_ours = (acc_bid + acc_ask) / 2
@@ -576,7 +575,7 @@ class Trader:
 
         if cpos < self.POSITION_LIMIT['AMETHYSTS']:
             num = min(40, self.POSITION_LIMIT['AMETHYSTS'] - cpos)
-            orders.append(Order(product, bid_pr, num))
+            orders.append(Order(product, int(round(bid_pr)), num))
             cpos += num
 
         cpos = self.position[product]
@@ -767,6 +766,9 @@ class Trader:
         conversions = 1
 
         self.logger.flush(state, result)
-
-        #return result
-        return result, conversions, traderData
+        #use for submissions on prosperity
+        #return result, conversions, traderData
+    
+        #use for backtester
+        return result, conversions
+    
