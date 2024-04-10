@@ -104,46 +104,29 @@ class AbstractIntervalTrader:
     def setup(self, state: PartTradingState):
         self.state = state
         self.position = state.position
-        if state.data:
-            self.data = state.data
+        self.data = state.data
         self.orders = []
 
     def run(self, state: PartTradingState):
         self.setup(state)
 
-        pred_price = self.get_price()
+        interval = self.get_interval()
 
-        # Place buy orders
-        for gain in range(self.limit - self.position):
-            self.buy(
-                    self.position_buy(self.position + gain, pred_price),
-                    1)
+        for (price, vol) in state.order_depth.sell_orders.items():
+            if price < interval[0]:
+                self.buy(price, -vol) # volumes are negative in sell orders
 
-        # place sell orders
-        for loss in range(self.position - self.limit):
-            self.sell(
-                    self.position_sell(self.position - gain, pred_price),
-                    1)
+        for (price, vol) in state.order_depth.buy_orders.items():
+            if price > interval[1]:
+                self.sell(price, vol) # volumes are negative in sell orders
 
         return self.orders[:], self.next_state()
 
-    def get_price(self) -> int:
+    def get_interval(self) -> Tuple[int, int]:
         ## Define some function using self.state to get the price you wanna trade at
+        # The first elem of the tuple is the maximum price you buy at
+        # The second elem of the tuple is the minimum price you sell at
         raise NotImplementedError
-
-    def position_buy(self, position: int, price: float) -> int:
-        # If I think the stock price is "price" and
-        # I am currently at position "position", how
-        # much am I willing to pay to go from position to
-        # position + 1
-        return price
-
-    def position_sell(self, position: int, price: float) -> int:
-        # If I think the stock price is "price" and
-        # I am currently at position "position", how
-        # much will I need to go from position to position - 1
-        return price
-
 
     def next_state(self) -> Any:
         ## Define what your next state will be, must be json serializable
