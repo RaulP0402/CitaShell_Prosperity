@@ -157,15 +157,12 @@ Indicators = ("mid_price", "market_sentiment", "lower_BB", "middle_BB", "upper_B
 sep = ','
 
 # Parameters of modell and indicators
-Parameters = {"n_MA":       50,  # time-span for MA
-              "n_mean_BB":  50,  # time-span BB
-              "n_sigma_BB": 50,  # time-span for sigma of BB
-              "n_RSI":      14,  # time-span for RSI
-              "n1_MACD":    26,  # time-span for the first (longer) MACD EMA
-              "n2_MACD":    12,  # time-span for the second (shorter) MACD EMA
-              "days_ADX":   5,   # how many time steps to consider a "day" in ADX
-              "n_ADX":      5,   # time-span for smoothing in ADX
-              "n_Model":    2,    # time-span for smoothing the regression model
+Parameters = {"n_MA":       20,  # time-span for MA
+              "n_mean_BB":  20,  # time-span BB
+              "n_sigma_BB": 20,  # time-span for sigma of BB
+              "n_RSI":      5,  # time-span for RSI
+              "n1_MACD":    10,  # time-span for the first (longer) MACD EMA
+              "n2_MACD":    5,  # time-span for the second (shorter) MACD EMA
             #   "Intercept":  -29.53989, # regression parameters
             #   "coeff_MS":   -0.03916,
             #   "coeff_BB":   0.83486,
@@ -235,58 +232,102 @@ class Trader:
         return orders
 
     def compute_orders_starfruit(self, product, order_depth, fair_price, sentiment):
-        orders: List[Order] = []
+        orders: list[Order] = []
 
         osell = OrderedDict(sorted(order_depth.sell_orders.items()))
         obuy = OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
 
+        sell_vol, best_sell_pr = self.values_extract(osell)
+        buy_vol, best_buy_pr = self.values_extract(obuy, 1)
+
         cpos = self.positions[product]
+
         for ask, vol in osell.items():
-            if (ask < fair_price) and cpos < self.limits['STARFRUIT']:
-            # if ((ask < fair_price) or ((self.positions[product] < 0) and ask <= fair_price)) and cpos < self.limits['STARFRUIT']:
-                order_for = min(-vol, self.limits['STARFRUIT'] - cpos)
+            if ((ask <= fair_price) or ((self.positions[product] < 0) and (ask == fair_price + 1))) and cpos < self.limits['STARFRUIT']:
+                order_for = min(-vol, self.limits["STARFRUIT"] - cpos)
                 cpos += order_for
-                assert(order_for >= 0)
+                assert (order_for >= 0)
                 orders.append(Order(product, ask, order_for))
 
-        undercut_buy = next(iter(osell))
-        undercut_sell = next(iter(obuy))
+        undercut_buy = best_buy_pr + 1
+        undercut_sell = best_sell_pr - 1
 
-        undercut_buy = undercut_buy + 1
-        undercut_sell = undercut_sell - 1
-
-        bid_pr = min(undercut_buy, fair_price )# we will shift this by 1 to beat this price
+        bid_pr = min(undercut_buy, fair_price)  # we will shift this by 1 to beat this price
         sell_pr = max(undercut_sell, fair_price)
 
-        # if cpos < self.limits['STARFRUIT']:
-        #     num = self.limits['STARFRUIT'] - cpos
-        #     orders.append(Order(product, bid_pr, num))
-        #     cpos += num
+        if cpos < self.limits['STARFRUIT']:
+            num = self.limits['STARFRUIT'] - cpos
+            orders.append(Order(product, bid_pr, num))
+            cpos += num
 
         cpos = self.positions[product]
 
-        cpos = self.positions[product]
         for bid, vol in obuy.items():
-            if (bid > fair_price) and cpos > -self.limits['STARFRUIT']:
-            # if ((bid > fair_price) or ((self.positions[product]>0) and (bid == fair_price))) and cpos > -self.limits['STARFRUIT']:
-                order_for = max(-vol, -self.limits['STARFRUIT']-cpos)
+            if ((bid >= fair_price) or ((self.positions[product] > 0) and (bid + 1 == fair_price))) and cpos > -self.limits['STARFRUIT']:
+                order_for = max(-vol, -self.limits['STARFRUIT'] - cpos)
                 # order_for is a negative number denoting how much we will sell
                 cpos += order_for
-                assert(order_for <= 0)
+                assert (order_for <= 0)
                 orders.append(Order(product, bid, order_for))
-        
-        # if cpos > -self.limits['STARFRUIT']:
-        #     num = -self.limits['STARFRUIT'] - cpos
-        #     orders.append(Order(product, sell_pr, num))
-        #     cpos += num
-            
+
+        if cpos > -self.limits['STARFRUIT']:
+            num = -self.limits['STARFRUIT'] - cpos
+            orders.append(Order(product, sell_pr, num))
+            cpos += num
+
         return orders
+        # orders: List[Order] = []
+
+        # osell = OrderedDict(sorted(order_depth.sell_orders.items()))
+        # obuy = OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
+
+        # cpos = self.positions[product]
+        # for ask, vol in osell.items():
+        #     if (ask < fair_price) and cpos < self.limits['STARFRUIT']:
+        #     # if ((ask < fair_price) or ((self.positions[product] < 0) and ask <= fair_price)) and cpos < self.limits['STARFRUIT']:
+        #         order_for = min(-vol, self.limits['STARFRUIT'] - cpos)
+        #         cpos += order_for
+        #         assert(order_for >= 0)
+        #         orders.append(Order(product, ask, order_for))
+
+        # undercut_buy = next(iter(osell))
+        # undercut_sell = next(iter(obuy))
+
+        # undercut_buy = undercut_buy + 1
+        # undercut_sell = undercut_sell - 1
+
+        # bid_pr = min(undercut_buy, fair_price )# we will shift this by 1 to beat this price
+        # sell_pr = max(undercut_sell, fair_price)
+
+        # # if cpos < self.limits['STARFRUIT']:
+        # #     num = self.limits['STARFRUIT'] - cpos
+        # #     orders.append(Order(product, bid_pr, num))
+        # #     cpos += num
+
+        # cpos = self.positions[product]
+
+        # cpos = self.positions[product]
+        # for bid, vol in obuy.items():
+        #     if (bid > fair_price) and cpos > -self.limits['STARFRUIT']:
+        #     # if ((bid > fair_price) or ((self.positions[product]>0) and (bid == fair_price))) and cpos > -self.limits['STARFRUIT']:
+        #         order_for = max(-vol, -self.limits['STARFRUIT']-cpos)
+        #         # order_for is a negative number denoting how much we will sell
+        #         cpos += order_for
+        #         assert(order_for <= 0)
+        #         orders.append(Order(product, bid, order_for))
+        
+        # # if cpos > -self.limits['STARFRUIT']:
+        # #     num = -self.limits['STARFRUIT'] - cpos
+        # #     orders.append(Order(product, sell_pr, num))
+        # #     cpos += num
+            
+        # return orders
 
     def run(self, state: TradingState) -> tuple[dict[Symbol, list[Order]], int, str]:
         conversions = 0
         trader_data = "@"
         # row_dims = 30
-        row_dims = 20
+        row_dims = 4
         result = defaultdict(list)
 
         for product, position in state.position.items():
@@ -312,6 +353,7 @@ class Trader:
                 fair_value_regression = 10000
                 orders = self.compute_orders_amethysts(product, order_depth, fair_value_regression, fair_value_regression)
                 result[product] = orders
+            
             
             if product == "STARFRUIT":
                 
