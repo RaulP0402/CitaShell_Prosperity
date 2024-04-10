@@ -526,16 +526,18 @@ class LeastSquaresRegression(AbstractIntervalTrader):
         bid_pr = min(undercut_buy, pred_price) # we will shift this by 1 to beat this price
         sell_pr = max(undercut_sell, pred_price)
 
+        for ask, vol in osell.items():
+            if ((ask < pred_price) or (self.position < 0 and ask <= pred_price + 1)):
+                self.buy_lenient(ask, vol=-vol)
+
         if self.position < self.limit:
             self.buy_lenient(undercut_buy)
-            self.buy_strict(best_sell_pr - 3)
-            
+            self.buy_strict(best_sell_pr - 4)
+
         for bid, vol in obuy.items():
             if ((bid > pred_price) or (self.position > 0 and bid >= pred_price + 1)):
                 self.sell_lenient(bid, vol=vol)
         
         if self.position > -self.limit:
             self.sell_lenient(undercut_sell)
-            self.sell_strict(best_sell_pr + 3)
-
-
+            self.sell_strict(best_sell_pr + 4)
