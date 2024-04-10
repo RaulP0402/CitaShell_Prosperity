@@ -136,22 +136,26 @@ class LeastSquaresRegression(AbstractIntervalTrader):
         _, best_sell_pr = self.values_extract(osell)
         _, best_buy_pr = self.values_extract(obuy, 1)
 
-        # Lets first fulfill any orders that are on the exchange
-        for ask, vol in osell.items():
-            if ((ask < pred_price) or (self.position < 0 and ask <= pred_price + 1)):
-                self.buy(ask, -vol)
+        undercut_buy = best_buy_pr + 1
+        undercut_sell = best_sell_pr - 1
+
+        bid_pr = min(undercut_buy, pred_price) # we will shift this by 1 to beat this price
+        sell_pr = max(undercut_sell, pred_price)
+
+        if self.position < self.limit:
+            self.buy_lenient(undercut_buy)
+            self.buy_strict(best_sell_pr - 1)
+
+        # if 0 <= self.position <= 15:
+        #     self.buy_lenient(undercut_buy)
         
-        # Lets now place orders to fufill based on probability distribution
-        standard_dev = np.std(self.data["Y"])
-        quantity_distribution = [.68, .27, .047]
-        for i in range(1, 4):
-            order_for = (self.limit - self.position) / quantity_distribution[i - 1]
-            self.buy(pred_price - (i * standard_dev), -order_for)
+        # if 15 < self.position <= self.limit:
+        #     self.buy_strict(best_buy_pr - 1)
         
         for bid, vol in obuy.items():
             if ((bid > pred_price) or (self.position > 0 and bid >= pred_price + 1)):
-                self.sell(bid, vol)
+                self.sell_lenient(bid, vol=vol)
         
-        # for i in range(1, 4):
-        #     order_for = (self.limit - self.position) / quantity_distribution[i - 1]
-        #     self.sell(pred_price + (i * standard_dev), order_for)
+        if self.position > -self.limit:
+            self.sell_lenient(undercut_sell)
+            self.sell_strict(best_sell_pr + 1)
