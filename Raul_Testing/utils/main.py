@@ -95,12 +95,14 @@ class AbstractIntervalTrader:
     def buy_strict(self, price):
         vol = min(5, self.limit - self.position)
         if vol > 0:
+            self.position += vol
             print(f"Buy {self.state.product_name} - {vol}")
             self.orders.append(Order(self.state.product_name, price, vol))
 
     def sell_strict(self, price):
         vol = max(-5, -self.position - self.limit)
         if vol < 0:
+            self.position += (-vol)
             print(f"Sell {self.state.product_name} - {-vol}")
             self.orders.append(Order(self.state.product_name, price, vol))
 
@@ -109,6 +111,7 @@ class AbstractIntervalTrader:
         # position limits
         vol = min(vol, self.limit - self.position - 5)
         if vol > 0:
+            self.position += vol
             print(f"Buy {self.state.product_name} - {vol}")
             self.orders.append(Order(self.state.product_name, price, vol))
 
@@ -117,6 +120,7 @@ class AbstractIntervalTrader:
         # position limits
         vol =  max(-vol, -self.position - self.limit + 5)
         if vol < 0:
+            self.position += (-vol)
             print(f"Sell {self.state.product_name} - {-vol}")
             self.orders.append(Order(self.state.product_name, price, vol))
 
@@ -125,6 +129,7 @@ class AbstractIntervalTrader:
         # position limits
         vol = min(vol, self.limit - self.position)
         if vol > 0:
+            self.position += vol
             print(f"Buy {self.state.product_name} - {vol}")
             self.orders.append(Order(self.state.product_name, price, vol))
 
@@ -133,6 +138,7 @@ class AbstractIntervalTrader:
         # position limits
         vol =  max(-vol, -self.position - self.limit)
         if vol < 0:
+            self.position += (-vol)
             print(f"Sell {self.state.product_name} - {-vol}")
             self.orders.append(Order(self.state.product_name, price, vol))
 
@@ -536,7 +542,7 @@ class LeastSquaresRegression(AbstractIntervalTrader):
             if ((bid > pred_price) or (self.position > 0 and bid >= pred_price + 1)):
                 self.sell(bid, vol)
         
-        # for i in range(1, 4):
-        #     order_for = (self.limit - self.position) / quantity_distribution[i - 1]
-        #     self.sell(pred_price + (i * standard_dev), order_for)
+        for i in range(1, 4):
+            order_for = (self.limit - self.position) / quantity_distribution[i - 1]
+            self.sell(pred_price + (i * standard_dev), order_for)
 
