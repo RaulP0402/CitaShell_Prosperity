@@ -57,8 +57,10 @@ class PartTradingState:
             for sym, _ in state.listings.items()
         }
 
-#  class meant to abstract away alot of the
-# basic operations needed to design simple algos
+# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ABSTRACT TRADER 
+# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 class AbstractIntervalTrader:
     """
     An Abstract Base Class for all traders which
@@ -120,7 +122,7 @@ class AbstractIntervalTrader:
         for (price, vol) in state.order_depth.buy_orders.items():
             if price > interval[1]:
                 self.sell(price, vol) # volumes are negative in sell orders
-
+    
         return self.orders[:], self.next_state()
 
     def get_interval(self) -> Tuple[int, int]:
@@ -153,19 +155,122 @@ def run_traders(traders: Dict[str, AbstractIntervalTrader], state: TradingState)
         if sym in traders:
             results[sym], next_data[sym] = traders[sym].run(part_state) if sym in traders else ([], '')
 
+    logger.flush(state, results, 0, "")
     return results, 1, json.dumps(next_data)
+
+# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# JASPERS LOGGER
+# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+class Logger:
+    def __init__(self) -> None:
+        self.logs = ""
+        self.max_log_length = 3750
+
+    def print(self, *objects: Any, sep: str = " ", end: str = "\n") -> None:
+        self.logs += sep.join(map(str, objects)) + end
+
+    def flush(self, state: TradingState, orders: dict[Symbol, list[Order]], conversions: int, trader_data: str) -> None:
+        base_length = len(self.to_json([
+            self.compress_state(state, ""),
+            self.compress_orders(orders),
+            conversions,
+            "",
+            "",
+        ]))
+
+        # We truncate state.traderData, trader_data, and self.logs to the same max. length to fit the log limit
+        max_item_length = (self.max_log_length - base_length) // 3
+
+        print(self.to_json([
+            self.compress_state(state, self.truncate(state.traderData, max_item_length)),
+            self.compress_orders(orders),
+            conversions,
+            self.truncate(trader_data, max_item_length),
+            self.truncate(self.logs, max_item_length),
+        ]))
+
+        self.logs = ""
+
+    def compress_state(self, state: TradingState, trader_data: str) -> list[Any]:
+        return [
+            state.timestamp,
+            trader_data,
+            self.compress_listings(state.listings),
+            self.compress_order_depths(state.order_depths),
+            self.compress_trades(state.own_trades),
+            self.compress_trades(state.market_trades),
+            state.position,
+            self.compress_observations(state.observations),
+        ]
+
+    def compress_listings(self, listings: dict[Symbol, Listing]) -> list[list[Any]]:
+        compressed = []
+        for listing in listings.values():
+            compressed.append([listing["symbol"], listing["product"], listing["denomination"]])
+
+        return compressed
+
+    def compress_order_depths(self, order_depths: dict[Symbol, OrderDepth]) -> dict[Symbol, list[Any]]:
+        compressed = {}
+        for symbol, order_depth in order_depths.items():
+            compressed[symbol] = [order_depth.buy_orders, order_depth.sell_orders]
+
+        return compressed
+
+    def compress_trades(self, trades: dict[Symbol, list[Trade]]) -> list[list[Any]]:
+        compressed = []
+        for arr in trades.values():
+            for trade in arr:
+                compressed.append([
+                    trade.symbol,
+                    trade.price,
+                    trade.quantity,
+                    trade.buyer,
+                    trade.seller,
+                    trade.timestamp,
+                ])
+
+        return compressed
+
+    def compress_observations(self, observations: Observation) -> list[Any]:
+        conversion_observations = {}
+        for product, observation in observations.conversionObservations.items():
+            conversion_observations[product] = [
+                observation.bidPrice,
+                observation.askPrice,
+                observation.transportFees,
+                observation.exportTariff,
+                observation.importTariff,
+                observation.sunlight,
+                observation.humidity,
+            ]
+
+        return [observations.plainValueObservations, conversion_observations]
+
+    def compress_orders(self, orders: dict[Symbol, list[Order]]) -> list[list[Any]]:
+        compressed = []
+        for arr in orders.values():
+            for order in arr:
+                compressed.append([order.symbol, order.price, order.quantity])
+
+        return compressed
+
+    def to_json(self, value: Any) -> str:
+        return json.dumps(value, cls=ProsperityEncoder, separators=(",", ":"))
+
+    def truncate(self, value: str, max_length: int) -> str:
+        if len(value) <= max_length:
+            return value
+
+        return value[:max_length - 3] + "..."
+
+logger = Logger()
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # LEAST SQUARES REGRESSION
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-Parameters = {"n_MA":       20,  # time-span for MA
-              "n_mean_BB":  20,  # time-span BB
-              "n_sigma_BB": 20,  # time-span for sigma of BB
-              "n_RSI":      5,  # time-span for RSI
-              "n1_MACD":    10,  # time-span for the first (longer) MACD EMA
-              "n2_MACD":    5,  # time-span for the second (shorter) MACD EMA
-              }
 
 def EMA(x, alpha):
     if len(x) == 0:
@@ -204,10 +309,17 @@ class OrdinaryLeastSquares():
 
 class LeastSquaresRegression(AbstractIntervalTrader):
 
-    def __init__(self, limit, buff_size):
+    def __init__(self, limit, buff_size, n_MA, n_mean_BB, n_sigma_BB, n_RSI, n1_MACD, n2_MACD):
         super().__init__(limit)
         self.buff_size = buff_size
-        self.row_dims = max(Parameters.values())
+        self.Parameters = {"n_MA":       n_MA,  # time-span for MA
+              "n_mean_BB":  n_mean_BB,  # time-span BB
+              "n_sigma_BB": n_sigma_BB,  # time-span for sigma of BB
+              "n_RSI":      n_RSI,  # time-span for RSI
+              "n1_MACD":    n1_MACD,  # time-span for the first (longer) MACD EMA
+              "n2_MACD":    n2_MACD,  # time-span for the second (shorter) MACD EMA
+              }
+        self.row_dims = max(self.Parameters.values())
 
     def get_interval(self):
         
@@ -231,12 +343,12 @@ class LeastSquaresRegression(AbstractIntervalTrader):
         price_history = data["Y"]
 
         # Calculate Bollinger Bands (lower band, middle band, upper band)
-        middle_BB = np.mean(price_history[-Parameters["n_mean_BB"]:])
-        upper_BB = middle_BB + 2*np.var(price_history[-Parameters["n_sigma_BB"]:])
-        lower_BB = middle_BB - 2*np.var(price_history[-Parameters["n_sigma_BB"]:])
+        middle_BB = np.mean(price_history[-self.Parameters["n_mean_BB"]:])
+        upper_BB = middle_BB + 2*np.var(price_history[-self.Parameters["n_sigma_BB"]:])
+        lower_BB = middle_BB - 2*np.var(price_history[-self.Parameters["n_sigma_BB"]:])
 
         # RSI (relative strength index)
-        RSI_increments = np.diff(price_history[-Parameters["n_RSI"]:])
+        RSI_increments = np.diff(price_history[-self.Parameters["n_RSI"]:])
         sum_up = np.sum([max(val, 0) for val in RSI_increments])
         sum_down = np.sum([-min(val, 0) for val in RSI_increments])
 
@@ -245,10 +357,10 @@ class LeastSquaresRegression(AbstractIntervalTrader):
         RSI = avg_up / (avg_up + avg_down) if avg_down + avg_down != 0 else 0
 
         # MACD (Moving average convergence/divergence)
-        alpha_1 = 2 / (Parameters["n1_MACD"] + 1) # Time span for longer MACD EMA
-        alpha_2 = 2 / (Parameters["n2_MACD"] + 1) # Time span for shorted MACD EMA
-        EMA_1 = EMA(price_history[-Parameters["n1_MACD"]:], alpha_1)
-        EMA_2 = EMA(price_history[-Parameters["n2_MACD"]:], alpha_2 )
+        alpha_1 = 2 / (self.Parameters["n1_MACD"] + 1) # Time span for longer MACD EMA
+        alpha_2 = 2 / (self.Parameters["n2_MACD"] + 1) # Time span for shorted MACD EMA
+        EMA_1 = EMA(price_history[-self.Parameters["n1_MACD"]:], alpha_1)
+        EMA_2 = EMA(price_history[-self.Parameters["n2_MACD"]:], alpha_2 )
         MACD = EMA_2 - EMA_1
 
         # Build A (regression matrix)
@@ -299,5 +411,7 @@ class FixedValueTrader(AbstractIntervalTrader):
 class Trader:
     def run(self, state: TradingState):
         return run_traders({'AMETHYSTS': FixedValueTrader(20, 10000),
-                            'STARFRUIT': LeastSquaresRegression(20, 15)},
+                            'STARFRUIT': LeastSquaresRegression(20, 15, 20, 20, 20, 5, 10, 5)},
                            state)
+    
+    

@@ -8,8 +8,7 @@ from collections import defaultdict
 
 from collections import OrderedDict
 
-from Raul_Testing.old_drivers.datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState, UserId
-
+from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState, UserId
 
 class Logger:
     def __init__(self) -> None:
@@ -368,7 +367,6 @@ class Trader:
                 model = OrdinaryLeastSquares()
                 model.fit(regression_matrix, Y_value)
                 fair_price = model.predict(regression_matrix[-1])
-                print(f'fair price predicted {fair_price[0]}')
 
                 orders: List[Order] = []
                 orders = self.compute_orders_starfruit(product, order_depth, fair_price[0], self.starfruit_sentiment)
