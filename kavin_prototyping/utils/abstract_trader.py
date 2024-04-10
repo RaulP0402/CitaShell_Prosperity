@@ -131,14 +131,14 @@ class AbstractIntervalTrader:
         ## Define some function using self.state to get the price you wanna trade at
         raise NotImplementedError
 
-    def position_buy(self, position: int, price: float) -> int:
+    def position_buy(self, position: int, price: float) -> float:
         # If I think the stock price is "price" and
         # I am currently at position "position", how
         # much am I willing to pay to go from position to
         # position + 1
         return price
 
-    def position_sell(self, position: int, price: float) -> int:
+    def position_sell(self, position: int, price: float) -> float:
         # If I think the stock price is "price" and
         # I am currently at position "position", how
         # much will I need to go from position to position - 1
