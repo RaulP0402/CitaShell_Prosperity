@@ -176,7 +176,6 @@ class Trader:
     cpnl = defaultdict(lambda: 0)
     starfruit_cache = []
     starfruit_dim = 4
-    steps = 0
 
     def calc_next_price_starfruit(self):
         # starfruit cache stores price from 1 day ago, current day resp
@@ -287,7 +286,7 @@ class Trader:
         return orders
 
 
-    def compute_orders_regression(self, product, order_depth, acc_bid, acc_ask, LIMIT):
+    def compute_orders_starfruit(self, product, order_depth, acc_bid, acc_ask, LIMIT):
         orders: list[Order] = []
         osell = collections.OrderedDict(sorted(order_depth.sell_orders.items()))
         obuy = collections.OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
@@ -335,7 +334,7 @@ class Trader:
         if product == "AMETHYSTS":
             return self.compute_orders_amethysts(product, order_depth, acc_bid, acc_ask)
         if product == "STARFRUIT":
-            return self.compute_orders_regression(product, order_depth, acc_bid, acc_ask, self.POSITION_LIMIT[product])
+            return self.compute_orders_starfruit(product, order_depth, acc_bid, acc_ask, self.POSITION_LIMIT[product])
 
     def run(self, state: TradingState) -> Dict[str, List[Order]]:
         """
@@ -352,15 +351,6 @@ class Trader:
 
         timestamp = state.timestamp
 
-        if len(self.starfruit_cache) == self.starfruit_dim:
-            self.starfruit_cache.pop(0)
-
-        _, bs_starfruit = self.values_extract(
-            collections.OrderedDict(sorted(state.order_depths['STARFRUIT'].sell_orders.items())))
-        _, bb_starfruit = self.values_extract(
-            collections.OrderedDict(sorted(state.order_depths['STARFRUIT'].buy_orders.items(), reverse=True)), 1)
-
-        self.starfruit_cache.append((bs_starfruit + bb_starfruit) / 2)
 
         INF = 1e9
 
