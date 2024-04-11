@@ -1,5 +1,5 @@
-from testing import Trader
-
+#from ARIMA_and_FVT import Trader
+from PRODUCTION import Trader
 from datamodel import *
 from typing import Any  #, Callable
 import numpy as np
@@ -561,7 +561,7 @@ def create_log_file(round: int, day: int, states: dict[int, TradingState], profi
 # Adjust accordingly the round and day to your needs
 if __name__ == "__main__":
     trader = Trader()
-    max_time = 199000
+    max_time = 199900
     if max_time < 10:
         max_time *= 100000
     round = 1

@@ -478,7 +478,7 @@ class Trader:
     starfruit_cache = []
     starfruit_dim = 4
     steps = 0
-    #
+    #a
     halflife_diff = 5
     alpha_diff = 1 - np.exp(-np.log(2) / halflife_diff)
 
@@ -507,10 +507,10 @@ class Trader:
         # intercept = 4.481696494462085
 
         #               q   d  p
-        # most success 10, -1, 4 thus far
+        # most success 5, 0, 4 thus far
         # highest q val u can go up to is 4
         
-        model = ARIMA(10, -1, 4)
+        model = ARIMA(5, 0, 4)
         pred = model.fit_predict(self.starfruit_cache)
         forecasted_price = model.forecast(pred, 1)[-1]
 
