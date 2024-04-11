@@ -7,21 +7,7 @@ from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder
 from abstract_tester import AbstractIntervalTrader, PartTradingState
 
 def least_squares(x, y):
-    """
-    Compute the coefficients of a linear regression model using the least squares method.
 
-    Parameters:
-        x (array-like): The independent variable(s) of the linear regression model.
-        y (array-like): The dependent variable of the linear regression model.
-
-    Returns:
-        array-like: The coefficients of the linear regression model.
-
-    Notes:
-        - If the determinant of x.T @ x is not equal to 0, the function computes the coefficients using the inverse of x.T @ x.
-        - If the determinant of x.T @ x is equal to 0, the function computes the coefficients using the pseudo inverse of x.T @ x.
-
-    """
     if np.linalg.det(x.T @ x) != 0:     # if determinant is not 0
         return np.linalg.inv((x.T @ x)) @ (x.T @ y)     #computes coefficients of LR model
     return np.linalg.pinv((x.T @ x)) @ (x.T @ y) # matrix not invertible uses pusedo inverse to give coefficients for LR model
@@ -58,31 +44,7 @@ def difference(x, d=1):
 
 #integrated
 def undo_difference(x, d=1):
-    """
-    Undo Difference
 
-    Reverses the differencing operation performed on a time series.
-
-    Parameters:
-        x (array-like): The differenced time series.
-        d (int, optional): The number of times the time series was differenced. Default is 1.
-
-    Returns:
-        array-like: The original time series.
-
-    Notes:
-        The undo_difference function reverses the differencing operation performed by the difference function.
-        It calculates the cumulative sum of the differenced time series.
-        If d is 1, the cumulative sum is returned.
-        If d is greater than 1, the function recursively applies the cumulative sum d times.
-
-    Examples:
-        >>> x = [1, 2, 3, 4]
-        >>> undo_difference(x)
-        [1, 3, 6, 10]
-        >>> undo_difference(x, d=2)
-        [1, 4, 10, 20]
-    """
     if d == 1:
         return np.cumsum(x)
     else:
@@ -278,7 +240,7 @@ class ARIMAModel(AbstractIntervalTrader):
         for ask, vol in osell.items():
             if ((ask <= acc_bid) or ((cpos < 0) and (ask == acc_bid + 1))) and cpos < self.limit:
                 order_for = min(-vol, self.limit - cpos)
-                self.buy_strict(ask, order_for)  # or self.buy_lenient(ask, order_for)
+                self.buy_strict(ask, order_for)  
 
         # Compute sell orders
         for bid, vol in obuy.items():
