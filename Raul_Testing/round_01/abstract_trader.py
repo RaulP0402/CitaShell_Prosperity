@@ -144,9 +144,7 @@ class AbstractIntervalTrader:
 
         pred_price = self.get_price()
 
-        print(f'Predicted price {pred_price}')
         if pred_price > 0:
-            print(f'Hello {pred_price}')
             self.calculate_orders(state, pred_price)
 
         return self.orders[:], self.data
@@ -154,19 +152,6 @@ class AbstractIntervalTrader:
     def get_price(self) -> int:
         ## Define some function using self.state to get the price you wanna trade at
         raise NotImplementedError
-
-    def position_buy(self, position: int, price: float) -> float:
-        # If I think the stock price is "price" and
-        # I am currently at position "position", how
-        # much am I willing to pay to go from position to
-        # position + 1
-        return price
-
-    def position_sell(self, position: int, price: float) -> float:
-        # If I think the stock price is "price" and
-        # I am currently at position "position", how
-        # much will I need to go from position to position - 1
-        return price
 
 
     def __init__(self, limit: int):

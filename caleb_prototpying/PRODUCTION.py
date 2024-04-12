@@ -20,7 +20,6 @@ def least_squares(x, y):
     return np.linalg.pinv((x.T @ x)) @ (x.T @ y) # matrix not invertible uses pusedo inverse to give coefficients for LR model
 
 
-
 """
 Auto Regressor
 """
@@ -260,6 +259,7 @@ class Trader:
                 cpos += order_for
                 assert (order_for <= 0)
                 orders.append(Order(product, bid, order_for))
+                
         #not at max selling capacity and positon is pos
         if (cpos > -self.POSITION_LIMIT['AMETHYSTS']) and (self.position[product] > 0):
             num = max(-40, -self.POSITION_LIMIT['AMETHYSTS'] - cpos)
@@ -315,6 +315,7 @@ class Trader:
                 cpos += order_for
                 assert (order_for <= 0)
                 orders.append(Order(product, bid, order_for))
+
         #create addiontional sell order if room
         if cpos > -LIMIT:
             num = -LIMIT - cpos

@@ -99,7 +99,7 @@ class AbstractIntervalTrader:
 
         vol = min(vol, self.limit - self.position - self.buys)
         if vol > 0:
-            print(f"Buy {self.state.product_name} - {vol}")
+            #print(f"Buy {self.state.product_name} - {vol}")
             self.orders.append(Order(prod, price, vol))
             self.buys += vol
 
@@ -112,7 +112,7 @@ class AbstractIntervalTrader:
 
         vol =  max(-vol, -self.position - self.limit - self.sells)
         if vol < 0:
-            print(f"Sell {self.state.product_name} - {-vol}")
+            #print(f"Sell {self.state.product_name} - {-vol}")
             self.orders.append(Order(prod, price, vol))
             self.sells += vol
 
@@ -144,9 +144,7 @@ class AbstractIntervalTrader:
 
         pred_price = self.get_price()
 
-        print(f'Predicted price {pred_price}')
         if pred_price > 0:
-            print(f'Hello {pred_price}')
             self.calculate_orders(state, pred_price)
 
         return self.orders[:], self.data
@@ -476,33 +474,52 @@ class ARIMAModel(AbstractIntervalTrader):
         self.starfruit_dim = 4
 
     def calculate_orders(self, state: PartTradingState, pred_price: int):
-        open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
-        open_buys = OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True))
+        # open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
+        # open_buys = OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True))
 
-        _, best_sell_pr = self.values_extract(open_sells)
-        _, best_buy_pr = self.values_extract(open_buys, 1)
+        # _, best_sell_pr = self.values_extract(open_sells)
+        # _, best_buy_pr = self.values_extract(open_buys, 1)
 
-        for ask, vol in open_sells.items():
-            if ((ask <= pred_price) or (self.position < 0 and ask == pred_price + 1)) and self.position < self.limit:
-                self.buy(ask, -vol)
+        # for ask, vol in open_sells.items():
+        #     if ((ask <= pred_price) or (self.position < 0 and ask == pred_price + 1)) and self.position < self.limit:
+        #         self.buy(ask, -vol)
 
-        undercut_buy = best_buy_pr + 1
-        undercut_sell = best_sell_pr - 1
+        # undercut_buy = best_buy_pr + 1
+        # undercut_sell = best_sell_pr - 1
 
-        bid_pr = min(undercut_buy, pred_price)
-        sell_pr = max(undercut_sell, pred_price)
+        # bid_pr = min(undercut_buy, pred_price)
+        # sell_pr = max(undercut_sell, pred_price)
 
-        if self.position < self.limit:
-            num = self.limit - self.position
-            self.buy(bid_pr, num)
+        # if self.position < self.limit:
+        #     num = self.limit - self.position
+        #     self.buy(bid_pr, num)
 
-        for bid, vol in open_buys.items():
-            if ((bid >= pred_price) or (self.position > 0 and bid + 1 == pred_price)) and self.position > -self.limit:
-                self.sell(bid, vol)
+        # for bid, vol in open_buys.items():
+        #     if ((bid >= pred_price) or (self.position > 0 and bid + 1 == pred_price)) and self.position > -self.limit:
+        #         self.sell(bid, vol)
 
-        if self.position > -self.limit:
-            num = -self.limit - self.position
-            self.sell(sell_pr, num)
+        # if self.position > -self.limit:
+        #     num = -self.limit - self.position
+        #     self.sell(sell_pr, num)
+        SKEWED_RANGE = 3
+
+        if self.position + SKEWED_RANGE >= self.limit:
+            volume_to_leave = self.position - self.limit + SKEWED_RANGE + 1
+
+            self.buy(pred_price-3, 40)
+            self.sell(pred_price, volume_to_leave)
+            self.sell(pred_price+2, self.position + 20 - volume_to_leave)
+
+        elif self.position - SKEWED_RANGE <= -self.limit:
+            volume_to_leave = -self.position - self.limit + SKEWED_RANGE + 1
+
+            self.sell(pred_price+3, 40)
+            self.buy(pred_price, volume_to_leave)
+            self.buy(pred_price-2, self.position + 20 - volume_to_leave)
+        
+        else:
+            self.buy(pred_price-2, 40)
+            self.sell(pred_price+2, 40)
 
 
     def get_price(self) -> int:
@@ -525,7 +542,7 @@ class ARIMAModel(AbstractIntervalTrader):
         if len(self.data["starfruit_cache"]) < self.starfruit_dim:
             return 0
 
-        model = ARIMA(4,0,4)
+        model = ARIMA(5,0,4)
         pred = model.fit_predict(self.data['starfruit_cache'])
         forecasted_price = model.forecast(pred, 1)[-1]
 
@@ -533,6 +550,7 @@ class ARIMAModel(AbstractIntervalTrader):
         #     self.data = data
 
         return int(round(forecasted_price))
+    
 from typing import List, Any, Dict, Tuple
 import json
 import numpy as np
