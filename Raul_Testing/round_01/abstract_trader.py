@@ -145,7 +145,7 @@ class AbstractIntervalTrader:
         pred_price = self.get_price()
 
         if pred_price > 0:
-            self.calculate_orders(state, pred_price)
+            self.calculate_orders(state, pred_price - 1, pred_price + 1)
 
         return self.orders[:], self.data
 

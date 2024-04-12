@@ -99,7 +99,7 @@ class AbstractIntervalTrader:
 
         vol = min(vol, self.limit - self.position - self.buys)
         if vol > 0:
-            #print(f"Buy {self.state.product_name} - {vol}")
+            print(f"Buy {self.state.product_name} - {vol}")
             self.orders.append(Order(prod, price, vol))
             self.buys += vol
 
@@ -112,7 +112,7 @@ class AbstractIntervalTrader:
 
         vol =  max(-vol, -self.position - self.limit - self.sells)
         if vol < 0:
-            #print(f"Sell {self.state.product_name} - {-vol}")
+            print(f"Sell {self.state.product_name} - {-vol}")
             self.orders.append(Order(prod, price, vol))
             self.sells += vol
 
@@ -145,26 +145,13 @@ class AbstractIntervalTrader:
         pred_price = self.get_price()
 
         if pred_price > 0:
-            self.calculate_orders(state, pred_price)
+            self.calculate_orders(state, pred_price - 1, pred_price + 1)
 
         return self.orders[:], self.data
 
     def get_price(self) -> int:
         ## Define some function using self.state to get the price you wanna trade at
         raise NotImplementedError
-
-    def position_buy(self, position: int, price: float) -> float:
-        # If I think the stock price is "price" and
-        # I am currently at position "position", how
-        # much am I willing to pay to go from position to
-        # position + 1
-        return price
-
-    def position_sell(self, position: int, price: float) -> float:
-        # If I think the stock price is "price" and
-        # I am currently at position "position", how
-        # much will I need to go from position to position - 1
-        return price
 
 
     def __init__(self, limit: int):
@@ -305,12 +292,7 @@ class Trader:
         return run_traders({'AMETHYSTS': FixedValueTrader(20, 10000),
                             'STARFRUIT': ARIMAModel(20)
                             }, state)
-from typing import List, Any, Dict, Tuple
-import json
-import numpy as np
-from dataclasses import dataclass
-from collections import OrderedDict
-from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState, UserId
+
 
 """
 Linear Regression
@@ -473,53 +455,44 @@ class ARIMAModel(AbstractIntervalTrader):
         # self.starfruit_cache = []
         self.starfruit_dim = 4
 
-    def calculate_orders(self, state: PartTradingState, pred_price: int):
-        # open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
-        # open_buys = OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True))
+    def calculate_orders(self, state: PartTradingState, acc_bid: int, acc_ask: int):
+        open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
+        open_buys = OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True))
 
-        # _, best_sell_pr = self.values_extract(open_sells)
-        # _, best_buy_pr = self.values_extract(open_buys, 1)
+        _, best_sell_pr = self.values_extract(open_sells)
+        _, best_buy_pr = self.values_extract(open_buys, 1)
 
-        # for ask, vol in open_sells.items():
-        #     if ((ask <= pred_price) or (self.position < 0 and ask == pred_price + 1)) and self.position < self.limit:
-        #         self.buy(ask, -vol)
+        cpos = self.position
 
-        # undercut_buy = best_buy_pr + 1
-        # undercut_sell = best_sell_pr - 1
+        for ask, vol in open_sells.items():
+            if ((ask <= acc_bid) or (self.position < 0 and ask == acc_bid + 1)) and cpos < self.limit:
+                order_for = min(-vol, self.limit - cpos)
+                self.orders.append(Order(self.state.product_name, ask, order_for))
+                cpos += order_for
 
-        # bid_pr = min(undercut_buy, pred_price)
-        # sell_pr = max(undercut_sell, pred_price)
+        undercut_buy = best_buy_pr + 1
+        undercut_sell = best_sell_pr - 1
 
-        # if self.position < self.limit:
-        #     num = self.limit - self.position
-        #     self.buy(bid_pr, num)
+        bid_pr = min(undercut_buy, acc_bid)
+        sell_pr = max(undercut_sell, acc_ask)
 
-        # for bid, vol in open_buys.items():
-        #     if ((bid >= pred_price) or (self.position > 0 and bid + 1 == pred_price)) and self.position > -self.limit:
-        #         self.sell(bid, vol)
+        if cpos < self.limit:
+            num = self.limit - cpos
+            self.orders.append(Order(self.state.product_name, bid_pr, num))
+            cpos += num
 
-        # if self.position > -self.limit:
-        #     num = -self.limit - self.position
-        #     self.sell(sell_pr, num)
-        SKEWED_RANGE = 3
-
-        if self.position + SKEWED_RANGE >= self.limit:
-            volume_to_leave = self.position - self.limit + SKEWED_RANGE + 1
-
-            self.buy(pred_price-3, 40)
-            self.sell(pred_price, volume_to_leave)
-            self.sell(pred_price+2, self.position + 20 - volume_to_leave)
-
-        elif self.position - SKEWED_RANGE <= -self.limit:
-            volume_to_leave = -self.position - self.limit + SKEWED_RANGE + 1
-
-            self.sell(pred_price+3, 40)
-            self.buy(pred_price, volume_to_leave)
-            self.buy(pred_price-2, self.position + 20 - volume_to_leave)
         
-        else:
-            self.buy(pred_price-2, 40)
-            self.sell(pred_price+2, 40)
+        cpos = self.position
+        for bid, vol in open_buys.items():
+            if ((bid >= acc_ask) or (self.position > 0 and bid + 1 == acc_ask)) and cpos > -self.limit:
+                order_for = max(-vol, -self.limit - cpos)
+                self.orders.append(Order(self.state.product_name, bid, order_for))
+                cpos += order_for
+
+        if cpos > -self.limit:
+            num = -self.limit - cpos
+            self.orders.append(Order(self.state.product_name, sell_pr, num))
+            cpos += num
 
 
     def get_price(self) -> int:
@@ -542,21 +515,13 @@ class ARIMAModel(AbstractIntervalTrader):
         if len(self.data["starfruit_cache"]) < self.starfruit_dim:
             return 0
 
-        model = ARIMA(5,0,4)
+        model = ARIMA(4,0,4)
         pred = model.fit_predict(self.data['starfruit_cache'])
         forecasted_price = model.forecast(pred, 1)[-1]
 
-        # if not self.data:
-        #     self.data = data
+
 
         return int(round(forecasted_price))
-    
-from typing import List, Any, Dict, Tuple
-import json
-import numpy as np
-from dataclasses import dataclass
-from collections import OrderedDict
-from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState, UserId
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # FIXED VALUE TRADER
@@ -576,70 +541,77 @@ class FixedValueTrader(AbstractIntervalTrader):
         return "None"
 
     
-    def calculate_orders(self, state: PartTradingState, pred_price: int):
-        # SKEWED_RANGE = 3
-
-        # if self.position + SKEWED_RANGE >= self.limit:
-        #     volume_to_leave = self.position - self.limit + SKEWED_RANGE + 1
-
-        #     self.buy(pred_price-3, 40)
-        #     self.sell(pred_price, volume_to_leave)
-        #     self.sell(pred_price+2, self.position + 20 - volume_to_leave)
-
-        # elif self.position - SKEWED_RANGE <= -self.limit:
-        #     volume_to_leave = -self.position - self.limit + SKEWED_RANGE + 1
-
-        #     self.sell(pred_price+3, 40)
-        #     self.buy(pred_price, volume_to_leave)
-        #     self.buy(pred_price-2, self.position + 20 - volume_to_leave)
-        
-        # else:
-        #     self.buy(pred_price-2, 40)
-        #     self.sell(pred_price+2, 40)
-
+    def calculate_orders(self, state: PartTradingState, acc_bid: int, acc_ask: int):
         open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
         open_buys = OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True))
+        acc_ask, acc_bid = 10000, 10000
 
         _, best_sell_pr = self.values_extract(open_sells)
         _, best_buy_pr = self.values_extract(open_buys, 1)
+        cpos = self.position
 
         for ask, vol in open_sells.items():
-            if ((ask < pred_price) or (self.position < 0 and ask == pred_price)) and self.position < self.limit:
-                self.buy(ask, -vol)
+            if ((ask < acc_bid) or (self.position < 0 and ask == acc_bid)) and cpos < self.limit:
+                # self.buy(ask, -vol)
+                order_for = min(-vol, self.limit - cpos)
+                self.orders.append(Order(self.state.product_name, int(round(ask)), order_for))
+                cpos += order_for
 
         undercut_buy = best_buy_pr + 1
         undercut_sell = best_sell_pr - 1
 
-        bid_pr = min(undercut_buy, pred_price - 2)
-        sell_pr = max(undercut_sell, pred_price + 2)
+        bid_pr = min(undercut_buy, acc_bid - 2)
+        sell_pr = max(undercut_sell, acc_ask + 2)
 
-        if (self.position < self.limit) and (self.position < 0):
-            num = min(40, self.limit - self.position)
-            self.buy(min(undercut_buy + 1, pred_price - 1), num)
+        if (cpos < self.limit) and (self.position < 0):
+            num = min(40, self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, min(undercut_buy + 1, acc_bid - 1), num
+                ))
+            cpos += num
         
-        if (self.position < self.limit) and (self.position > 15):
-            num = min(40, self.limit - self.position)
-            self.buy(min(undercut_buy - 1, pred_price - 1), num)
+        if (cpos < self.limit) and (self.position > 15):
+            num = min(40, self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, min(undercut_buy -1, acc_bid -1), num
+            ))
+            cpos += num
 
-        if self.position < self.limit:
-            num = min(40, self.limit - self.position)
-            self.buy(int(round(bid_pr)), num)
+        if cpos < self.limit:
+            num = min(40, self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, int(round(bid_pr)), num
+            ))
+            cpos += num
+        
+        cpos = self.position
 
         for bid, vol in open_buys.items():
-            if ((bid > pred_price) or (self.position > 0 and bid == pred_price)) and self.position > -self.limit:
-                self.sell(bid, vol)
+            if ((bid > acc_ask) or (self.position > 0 and bid == acc_ask)) and cpos > -self.limit:
+                order_for = max(-vol, -self.limit - cpos)
+                self.orders.append(Order(
+                    self.state.product_name, bid, order_for
+                ))
+                cpos += order_for
 
-        if (self.position > -self.limit) and (self.position > 0):
-            num = max(-40, -self.limit - self.position)
-            self.sell(max(undercut_sell - 1, pred_price + 1), num)
+        if (cpos > -self.limit) and (self.position > 0):
+            num = max(-40, -self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, max(undercut_sell - 1, acc_ask + 1), num
+            ))
+            cpos += num
 
-        if (self.position > -self.limit) and (self.position < -15):
-            num = max(-40, -self.limit - self.position)
-            self.sell(max(undercut_sell + 1, pred_price + 1), num)
+        if (cpos > -self.limit) and (self.position < -15):
+            num = max(-40, -self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, max(undercut_sell + 1, acc_ask + 1), num
+            ))
+            cpos += num
 
-        if self.position > -self.limit:
-            num = max(-40, -self.limit - self.position)
-            self.sell(sell_pr, num)
-        
-
+        if cpos > -self.limit:
+            num = max(-40, -self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, sell_pr, num
+            ))
+            cpos += num
         
