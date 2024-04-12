@@ -257,6 +257,7 @@ class Trader:
 
         '''
         sell orders
+        
         '''
         #place sell order if bid price > acceptable price
         for bid, vol in obuy.items():
@@ -351,6 +352,15 @@ class Trader:
 
         timestamp = state.timestamp
 
+        if len(self.starfruit_cache) == self.starfruit_dim:
+            self.starfruit_cache.pop(0)
+
+        _, bs_starfruit = self.values_extract(
+            collections.OrderedDict(sorted(state.order_depths['STARFRUIT'].sell_orders.items())))
+        _, bb_starfruit = self.values_extract(
+            collections.OrderedDict(sorted(state.order_depths['STARFRUIT'].buy_orders.items(), reverse=True)), 1)
+
+        self.starfruit_cache.append((bs_starfruit + bb_starfruit) / 2)
 
         INF = 1e9
 
