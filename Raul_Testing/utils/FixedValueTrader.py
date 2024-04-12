@@ -3,9 +3,8 @@ import json
 import numpy as np
 from dataclasses import dataclass
 from collections import OrderedDict
-from Driver_v3 import PartTradingState
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState, UserId
-from Driver_v3 import AbstractIntervalTrader
+from Driver_v5 import AbstractIntervalTrader, PartTradingState
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # FIXED VALUE TRADER
@@ -17,14 +16,15 @@ class FixedValueTrader(AbstractIntervalTrader):
         super().__init__(limit)
         self.value = value
 
-    def get_interval(self):
+    def get_price(self):
         # Note that I have access to self.state here as well
-        return (self.value, self.value)
+        return self.value
 
     def next_state(self):
         return "None"
+
     
-    def calculate_orders(self, state: PartTradingState, interval: Tuple[int]):
+    def calculate_orders(self, state: PartTradingState, pred_price: int):
         osell = OrderedDict(sorted(state.order_depth.sell_orders.items()))
         obuy = OrderedDict(sorted(state.order_depth.buy_orders.items(), reverse=True))
 
@@ -33,7 +33,7 @@ class FixedValueTrader(AbstractIntervalTrader):
 
         # Look buy to cheap or sell low on a current short
         for ask, vol in osell.items():
-            if ((ask < interval[0]) or (self.position < 0 and ask <= interval[0])):
+            if ((ask < pred_price) or (self.position < 0 and ask <= pred_price)):
                 self.buy_lenient(ask, vol=-vol)
         
         undercut_buy = best_buy_pr + 1
@@ -46,7 +46,7 @@ class FixedValueTrader(AbstractIntervalTrader):
             self.buy_strict(best_buy_pr - 1)
 
         for bid, vol in obuy.items():
-            if ((bid > interval[1]) or (self.position > 0 and bid >= interval[1])):
+            if ((bid > pred_price) or (self.position > 0 and bid >= pred_price)):
                 self.sell_lenient(bid, vol=vol)
 
         if -15 <= self.position <= 0:

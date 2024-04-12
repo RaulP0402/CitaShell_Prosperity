@@ -3,6 +3,45 @@ from typing import List, Any, Dict, Tuple
 import string
 import json
 from dataclasses import dataclass
+from typing import List, Any, Dict, Tuple
+import json
+import numpy as np
+from collections import OrderedDict
+
+def EMA(x, alpha):
+    if len(x) == 0:
+        return 1
+    if len(x) == 1:
+        return x[0]
+    return alpha*x[-1] + (1-alpha)*EMA(x[:-1], alpha)
+
+class OrdinaryLeastSquares():
+
+    def __init__(self):
+        self.coef = []
+
+    def _reshape_x(self, X):
+        return X.reshape(-1, 1)
+
+    def _concatenate_ones(self, X):
+        X_with_intercept = np.concatenate((np.ones((X.shape[0], 1)), X), axis=1)
+
+        return X_with_intercept
+
+
+    def fit(self, X, y):
+        X = self._concatenate_ones(X)
+        self.coef = np.linalg.pinv(X.transpose().dot(X)).dot(X.transpose()).dot(y)
+
+    def predict(self, entry):
+        b0 = self.coef[0]
+        other_betas = self.coef[1:]
+        prediction = b0
+
+        for xi, bi in zip(entry, other_betas):
+            prediction += (bi*xi)
+
+        return prediction
 
 @dataclass
 class PartTradingState:
@@ -104,8 +143,8 @@ class AbstractIntervalTrader:
     def setup(self, state: PartTradingState):
         self.state = state
         self.position = state.position
-        if state.data:
-            self.data = state.data
+        # if state.data:
+        self.data = state.data
         self.orders = []
 
     def run(self, state: PartTradingState):
@@ -394,7 +433,7 @@ class FixedValueTrader(AbstractIntervalTrader):
 
 class Trader:
     def run(self, state: TradingState):
-        return run_traders({'AMETHYSTS': FixedValueTrader(20, 10000),
+        return run_traders({#'AMETHYSTS': FixedValueTrader(20, 10000),
                             'STARFRUIT': DiminishingReturnsTrader(
                                 20,
                                 15, 20, 20, 20, 5, 10, 5,
