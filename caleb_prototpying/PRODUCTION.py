@@ -172,18 +172,10 @@ class ARIMA(LinearModel):
 class Trader:
     position = copy.deepcopy(empty_dict)
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}
-    volume_traded = copy.deepcopy(empty_dict)
-    cpnl = defaultdict(lambda: 0)
     starfruit_cache = []
     starfruit_dim = 4
 
-    def calc_next_price_starfruit(self):
-        # starfruit cache stores price from 1 day ago, current day resp
-        # by price, here we mean mid price
-        #               q   d  p
-        # most success 5, 0, 4 thus far
-        # highest q val u can go up to is 4
-        
+    def calc_next_price_starfruit(self):        
         model = ARIMA(5, 0, 4)
         pred = model.fit_predict(self.starfruit_cache)
         forecasted_price = model.forecast(pred, 1)[-1]
@@ -349,9 +341,6 @@ class Trader:
         for key, val in state.position.items():
             self.position[key] = val
 
-
-        timestamp = state.timestamp
-
         if len(self.starfruit_cache) == self.starfruit_dim:
             self.starfruit_cache.pop(0)
 
@@ -389,30 +378,6 @@ class Trader:
             order_depth: OrderDepth = state.order_depths[product]
             orders = self.compute_orders(product, order_depth, acc_bid[product], acc_ask[product])
             result[product] += orders
-        
-        for product in state.own_trades.keys():
-            for trade in state.own_trades[product]:
-                if trade.timestamp != state.timestamp - 100:
-                    continue
-                self.volume_traded[product] += abs(trade.quantity)
-                if trade.buyer == "SUBMISSION":
-                    self.cpnl[product] -= trade.quantity * trade.price
-                else:
-                    self.cpnl[product] += trade.quantity * trade.price
-
-        totpnl = 0
-
-        for product in state.order_depths.keys():
-            settled_pnl = 0
-            best_sell = min(state.order_depths[product].sell_orders.keys())
-            best_buy = max(state.order_depths[product].buy_orders.keys())
-
-            if self.position[product] < 0:
-                settled_pnl += self.position[product] * best_buy
-            else:
-                settled_pnl += self.position[product] * best_sell
-            totpnl += settled_pnl + self.cpnl[product]
-        
 
 
         # String value holding Trader state data required.
