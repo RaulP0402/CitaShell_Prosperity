@@ -85,21 +85,32 @@ class AbstractIntervalTrader:
     data: Any
     limit: int
 
-    def buy(self, price, vol):
+    def buy(self, price, vol, prod = ""):
         # Helper function to let you buy without worrying about
         # position limits
-        vol = min(vol, self.limit - self.position)
+
+        if not prod:
+            prod = self.state.product_name
+
+        vol = min(vol, self.limit - self.position - self.buys)
         if vol > 0:
             print(f"Buy {self.state.product_name} - {vol}")
-            self.orders.append(Order(self.state.product_name, price, vol))
+            self.orders.append(Order(prod, price, vol))
+            self.buys += vol
 
-    def sell(self, price, vol):
+    def sell(self, price, vol, prod = ""):
         # Helper function to let you sell without worrying about
         # position limits
-        vol =  max(-vol, -self.position - self.limit)
+
+        if not prod:
+            prod = self.state.product_name
+
+        vol =  max(-vol, -self.position - self.limit - self.sells)
         if vol < 0:
             print(f"Sell {self.state.product_name} - {-vol}")
-            self.orders.append(Order(self.state.product_name, price, vol))
+            self.orders.append(Order(prod, price, vol))
+            self.sells += vol
+
 
     def setup(self, state: PartTradingState):
         self.state = state
@@ -125,7 +136,7 @@ class AbstractIntervalTrader:
                     self.position_sell(self.position - gain, pred_price),
                     1)
 
-        return self.orders[:], self.next_state()
+        return self.orders[:], self.data
 
     def get_price(self) -> int:
         ## Define some function using self.state to get the price you wanna trade at
@@ -144,10 +155,6 @@ class AbstractIntervalTrader:
         # much will I need to go from position to position - 1
         return price
 
-
-    def next_state(self) -> Any:
-        ## Define what your next state will be, must be json serializable
-        raise NotImplementedError
 
     def __init__(self, limit: int):
         self.limit = abs(limit)

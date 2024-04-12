@@ -28,11 +28,8 @@ class LinearRegressionTrader(AbstractIntervalTrader):
             self.data.append(new_dat)
             return (new_dat, new_dat)
 
-    def next_state(self):
         if len(self.data) > self.buff_size:
             self.data.pop(0)
-
-        return self.data
 
     def __init__(self, limit, buff_size):
         super().__init__(limit)

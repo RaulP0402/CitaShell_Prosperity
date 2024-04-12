@@ -4,10 +4,8 @@ class FixedValueTrader(AbstractIntervalTrader):
 
         return (self.value, self.value)
 
-    def next_state(self):
-        return "None"
-
     def __init__(self, limit, value):
         super().__init__(limit)
         self.value = value
+        self.data = "None"
 
