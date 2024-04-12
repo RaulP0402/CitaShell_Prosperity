@@ -4,12 +4,13 @@ import numpy as np
 from dataclasses import dataclass
 from collections import OrderedDict
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState, UserId
-from abstract_trader_template import PartTradingState, AbstractIntervalTrader
+from abstract_trader import AbstractIntervalTrader, PartTradingState
+
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # FIXED VALUE TRADER
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-class FixedValueTraderRaul(AbstractIntervalTrader):
+class FixedValueTrader(AbstractIntervalTrader):
 
     def __init__(self, limit, value):
         super().__init__(limit)
@@ -23,33 +24,79 @@ class FixedValueTraderRaul(AbstractIntervalTrader):
         return "None"
 
     
-    def calculate_orders(self, state: PartTradingState, pred_price: int):
-        osell = OrderedDict(sorted(state.order_depth.sell_orders.items()))
-        obuy = OrderedDict(sorted(state.order_depth.buy_orders.items(), reverse=True))
+    def calculate_orders(self, state: PartTradingState, acc_bid: int, acc_ask: int):
+        open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
+        open_buys = OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True))
+        acc_ask, acc_bid = 10000, 10000
 
-        _, best_sell_pr = self.values_extract(osell)
-        _, best_buy_pr = self.values_extract(obuy, 1)
+        _, best_sell_pr = self.values_extract(open_sells)
+        _, best_buy_pr = self.values_extract(open_buys, 1)
+        cpos = self.position
 
-        # Look buy to cheap or sell low on a current short
-        for ask, vol in osell.items():
-            if ((ask < pred_price) or (self.position < 0 and ask <= pred_price)):
-                self.buy_lenient(ask, vol=-vol)
-        
+        for ask, vol in open_sells.items():
+            if ((ask < acc_bid) or (self.position < 0 and ask == acc_bid)) and cpos < self.limit:
+                # self.buy(ask, -vol)
+                order_for = min(-vol, self.limit - cpos)
+                self.orders.append(Order(self.state.product_name, int(round(ask)), order_for))
+                cpos += order_for
+
         undercut_buy = best_buy_pr + 1
         undercut_sell = best_sell_pr - 1
 
-        if 0 <= self.position <= 15:
-            self.buy_lenient(undercut_buy)
+        bid_pr = min(undercut_buy, acc_bid - 2)
+        sell_pr = max(undercut_sell, acc_ask + 2)
 
-        if 15 < self.position <= self.limit:
-            self.buy_strict(best_buy_pr - 1)
-
-        for bid, vol in obuy.items():
-            if ((bid > pred_price) or (self.position > 0 and bid >= pred_price)):
-                self.sell_lenient(bid, vol=vol)
-
-        if -15 <= self.position <= 0:
-            self.sell_lenient(undercut_sell)
+        if (cpos < self.limit) and (self.position < 0):
+            num = min(40, self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, min(undercut_buy + 1, acc_bid - 1), num
+                ))
+            cpos += num
         
-        if self.limit < self.position < -15:
-            self.sell_strict(best_sell_pr + 1)
+        if (cpos < self.limit) and (self.position > 15):
+            num = min(40, self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, min(undercut_buy -1, acc_bid -1), num
+            ))
+            cpos += num
+
+        if cpos < self.limit:
+            num = min(40, self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, int(round(bid_pr)), num
+            ))
+            cpos += num
+        
+        cpos = self.position
+
+        for bid, vol in open_buys.items():
+            if ((bid > acc_ask) or (self.position > 0 and bid == acc_ask)) and cpos > -self.limit:
+                order_for = max(-vol, -self.limit - cpos)
+                self.orders.append(Order(
+                    self.state.product_name, bid, order_for
+                ))
+                cpos += order_for
+
+        if (cpos > -self.limit) and (self.position > 0):
+            num = max(-40, -self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, max(undercut_sell - 1, acc_ask + 1), num
+            ))
+            cpos += num
+
+        if (cpos > -self.limit) and (self.position < -15):
+            num = max(-40, -self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, max(undercut_sell + 1, acc_ask + 1), num
+            ))
+            cpos += num
+
+        if cpos > -self.limit:
+            num = max(-40, -self.limit - cpos)
+            self.orders.append(Order(
+                self.state.product_name, sell_pr, num
+            ))
+            cpos += num
+        
+
+        
