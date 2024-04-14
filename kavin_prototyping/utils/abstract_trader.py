@@ -1,4 +1,4 @@
-from datamodel import OrderDepth, UserId, TradingState, Order, Listing, Trade, Observation
+from datamodel import OrderDepth,UserId, TradingState, Order, Listing, Trade, Observation, ConversionObservation
 from typing import List, Any, Dict, Tuple
 import string
 import json
@@ -18,7 +18,7 @@ class GeneralOrder:
             price = obs.ask + obs.transportFees
             quantity = -position
             tarrif = obs.importTariff
-        else position > 0:
+        elif position > 0:
             price = observation.bid - observation.transportFees
             quantity = position
             tarrif = obs.exportTariff
@@ -125,7 +125,7 @@ class PartTradingState:
     full_state: TradingState
 
     @staticmethod
-    def partition_trading_state(state: TradingState, json_data) -> PartTradingState:
+    def partition_trading_state(state: TradingState, json_data):
         # Partitions Trading State into a dictionary of PartTradingState
         return {
                 sym:PartTradingState(
@@ -198,10 +198,10 @@ class AbstractIntervalTrader:
             self.orders.append(Order(prod, price, vol))
             self.sells += vol
 
-    def import(self, quantity) -> int:
+    def import_ext(self, quantity) -> int:
         # returns how much you successfully
         # imported
-        if self.position => 0:
+        if self.position >= 0:
             return 0
 
         old_imports = self.net_import
@@ -210,7 +210,7 @@ class AbstractIntervalTrader:
 
         return self.net_import - old_imports
 
-    def export(self, quantity) -> int:
+    def export_ext(self, quantity) -> int:
         if self.position <= 0:
             return 0
 
@@ -250,6 +250,7 @@ class AbstractIntervalTrader:
         # Use self.buy, self.sell, self.import
         # and self.export to do as the names
         # suggest
+        pass
 
     def __init__(self, limit: int):
         self.limit = abs(limit)
