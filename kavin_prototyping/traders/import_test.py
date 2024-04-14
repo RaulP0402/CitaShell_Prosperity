@@ -1,3 +1,7 @@
+###############################
+# Pregen stuff
+###############################
+
 from datamodel import OrderDepth,UserId, TradingState, Order, Listing, Trade, Observation, ConversionObservation
 from typing import List, Any, Dict, Tuple
 import string
@@ -85,6 +89,9 @@ class GeneralOrderDepth:
 
     def sell_items(self):
         return [(item.price, item.quantity, item.tariff) for item in self.sell_orders]
+
+    def __str__(self):
+        return f'{self.buy_orders}, {self.sell_orders}'
 
 
 @dataclass
@@ -244,6 +251,8 @@ class AbstractIntervalTrader:
 
         self.get_orders(pred_price)
 
+        print(self.net_import)
+
         return self.orders[:], self.net_import, self.data
 
     def get_price(self) -> int:
@@ -280,3 +289,33 @@ def run_traders(traders: Dict[str, AbstractIntervalTrader], state: TradingState)
 
     return results, conversions, json.dumps(next_data)
 
+
+################################
+# Trader Class
+################################
+
+
+class FixedValueTrader(AbstractIntervalTrader):
+    def get_price(self):
+        # Note that I have access to self.state here as well
+        return self.value
+
+    def get_orders(self, price):
+        print(self.state.general_order_depth)
+        if self.position == 0:
+            self.buy(10000, self.limit)
+        else:
+            self.export_ext(self.position)
+
+    def __init__(self, limit, value):
+        super().__init__(limit)
+        self.value = value
+        self.data = "None"
+
+###############################
+# run traders
+###############################
+
+class Trader:
+    def run(self, state: TradingState):
+        return run_traders({'ORCHIDS': FixedValueTrader(20, 10000)}, state)
