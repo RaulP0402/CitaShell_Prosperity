@@ -15,11 +15,11 @@ class GeneralOrder:
             obs: ConversionObservation,
             position: int):
         if position < 0:
-            price = obs.ask + obs.transportFees
+            price = obs.askPrice + obs.transportFees
             quantity = -position
             tarrif = obs.importTariff
         elif position > 0:
-            price = observation.bid - observation.transportFees
+            price = obs.bidPrice - obs.transportFees
             quantity = position
             tarrif = obs.exportTariff
 
@@ -53,19 +53,19 @@ class GeneralOrderDepth:
         sell_orders = []
         buy_orders = []
 
-        for (ask, vol) in state.order_depths[product].sell_orders:
+        for (ask, vol) in state.order_depths[product].sell_orders.items():
             sell_orders.append(
                     GeneralOrder(ask, vol, None)
                     )
 
-        for (bid, vol) in state.order_depths[product].buy_orders:
+        for (bid, vol) in state.order_depths[product].buy_orders.items():
             buy_orders.append(
                     GeneralOrder(bid, vol, None)
                     )
 
         if product in state.observations.conversionObservations:
-            obs = state.observations.conversionObservation[product]
-            position = state.position[product]
+            obs = state.observations.conversionObservations[product]
+            position = state.position[product] if product in state.position else 0
 
             if position > 0:
                 # If you have a positive position, this
@@ -124,6 +124,9 @@ class PartTradingState:
     # do some multivar stuff
     full_state: TradingState
 
+    # timestamp
+    timestamp: int
+
     @staticmethod
     def partition_trading_state(state: TradingState, json_data):
         # Partitions Trading State into a dictionary of PartTradingState
@@ -138,7 +141,8 @@ class PartTradingState:
                         market_trades = state.market_trades[sym] if sym in state.market_trades else [],
                         position = state.position[sym] if sym in state.position else 0,
                         observations = state.observations,
-                        full_state = state
+                        full_state = state,
+                        timestamp = state.timestamp
                     )
             for sym, _ in state.listings.items()
         }
@@ -240,7 +244,7 @@ class AbstractIntervalTrader:
 
         self.get_orders(pred_price)
 
-        return self.orders[:], self.new_imports, self.data
+        return self.orders[:], self.net_import, self.data
 
     def get_price(self) -> int:
         ## Define some function using self.state to get the price you wanna trade at
