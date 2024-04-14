@@ -5,6 +5,89 @@ import json
 from dataclasses import dataclass
 
 @dataclass
+class GeneralOrder:
+    price: int
+    quantity: int
+    tariff: float | None = None
+
+    @staticmethod
+    def from_observation(
+            obs: ConversionObservation,
+            position: int):
+        if position < 0:
+            price = obs.ask + obs.transportFees
+            quantity = -position
+            tarrif = obs.importTariff
+        else position > 0:
+            price = observation.bid - observation.transportFees
+            quantity = position
+            tarrif = obs.exportTariff
+
+        return GeneralOrder(
+                True,
+                price,
+                quantity
+                )
+
+    def is_international(self):
+        if self.tariff:
+            return True
+        else:
+            return False
+
+    def item(self):
+        return (self.price, self.quantity, self.tariff)
+
+
+
+class GeneralOrderDepth:
+    # A list sorted by price of
+    # buy orders
+    buy_orders: List[GeneralOrder]
+
+    # A list sorted by price of
+    # sell orders
+    sell_orders: List[GeneralOrder]
+
+    def __init__(self, state: TradingState, product: str):
+        sell_orders = []
+        buy_orders = []
+
+        for (ask, vol) in state.order_depths[product].sell_orders:
+            sell_orders.append(
+                    GeneralOrder(ask, vol, None)
+                    )
+
+        for (bid, vol) in state.order_depths[product].buy_orders:
+            buy_orders.append(
+                    GeneralOrder(bid, vol, None)
+                    )
+
+        if product in state.observations.conversionObservations:
+            obs = state.observations.conversionObservation[product]
+            position = state.position[product]
+
+            if position > 0:
+                # If you have a positive position, this
+                # means that there are people who want to
+                # buy from you in the international market.
+                # so you can export, so you have a buy order
+                buy_orders.append(GeneralOrder.from_observation(obs, position))
+            elif position < 0:
+                # reverse logic for a short position
+                sell_orders.append(GeneralOrder.from_observation(obs, position))
+
+        self.buy_orders = sorted(buy_orders, key = lambda x : x.price)
+        self.sell_orders = sorted(sell_orders, key = lambda x : -x.price)
+
+    def buy_items(self):
+        return [(item.price, item.quantity, item.tariff) for item in self.buy_orders]
+
+    def sell_items(self):
+        return [(item.price, item.quantity, item.tariff) for item in self.sell_orders]
+
+
+@dataclass
 class PartTradingState:
     """
     A version of Trading State, but
@@ -21,6 +104,9 @@ class PartTradingState:
 
     # Order depths for this particular product
     order_depth : OrderDepth
+
+    # General Order Depths for this product (including import/export)
+    general_order_depth: GeneralOrderDepth
 
     # own trades for this particular proudct
     own_trades: List[Trade]
@@ -47,6 +133,7 @@ class PartTradingState:
                         data = json_data[sym] if json_data and (sym in json_data) else None, # in the future, this will also be partitioned
                         listings = state.listings,
                         order_depth = state.order_depths[sym],
+                        general_order_depth = GeneralOrderDepth(state, sym),
                         own_trades = state.own_trades[sym] if sym in state.own_trades else [],
                         market_trades = state.market_trades[sym] if sym in state.market_trades else [],
                         position = state.position[sym] if sym in state.position else 0,
@@ -111,50 +198,58 @@ class AbstractIntervalTrader:
             self.orders.append(Order(prod, price, vol))
             self.sells += vol
 
+    def import(self, quantity) -> int:
+        # returns how much you successfully
+        # imported
+        if self.position => 0:
+            return 0
+
+        old_imports = self.net_import
+
+        self.net_import = min(quantity + self.net_import, -self.position)
+
+        return self.net_import - old_imports
+
+    def export(self, quantity) -> int:
+        if self.position <= 0:
+            return 0
+
+        old_imports = self.net_import
+
+        self.net_import = max(self.net_import - quantity, -self.position)
+
+        return -(self.net_import - old_imports)
 
     def setup(self, state: PartTradingState):
         self.state = state
         self.position = state.position
+        self.sells = 0
+        self.buys = 0
+        self.net_import = 0
         if state.data:
             self.data = state.data
         self.orders = []
+
+    def cpos(self) -> int:
+        return self.position + self.buys - self.sells
 
     def run(self, state: PartTradingState):
         self.setup(state)
 
         pred_price = self.get_price()
 
-        # Place buy orders
-        for gain in range(self.limit - self.position):
-            self.buy(
-                    self.position_buy(self.position + gain, pred_price),
-                    1)
+        self.get_orders(pred_price)
 
-        # place sell orders
-        for loss in range(self.position - self.limit):
-            self.sell(
-                    self.position_sell(self.position - gain, pred_price),
-                    1)
-
-        return self.orders[:], self.data
+        return self.orders[:], self.new_imports, self.data
 
     def get_price(self) -> int:
         ## Define some function using self.state to get the price you wanna trade at
         raise NotImplementedError
 
-    def position_buy(self, position: int, price: float) -> float:
-        # If I think the stock price is "price" and
-        # I am currently at position "position", how
-        # much am I willing to pay to go from position to
-        # position + 1
-        return price
-
-    def position_sell(self, position: int, price: float) -> float:
-        # If I think the stock price is "price" and
-        # I am currently at position "position", how
-        # much will I need to go from position to position - 1
-        return price
-
+    def get_orders(self, price) -> None:
+        # Use self.buy, self.sell, self.import
+        # and self.export to do as the names
+        # suggest
 
     def __init__(self, limit: int):
         self.limit = abs(limit)
@@ -170,11 +265,13 @@ def run_traders(traders: Dict[str, AbstractIntervalTrader], state: TradingState)
 
     part = PartTradingState.partition_trading_state(state, j_data)
     results = {}
+    conversions = 0
     next_data = {}
 
     for (sym, part_state) in part.items():
         if sym in traders:
-            results[sym], next_data[sym] = traders[sym].run(part_state) if sym in traders else ([], '')
+            results[sym], val, next_data[sym] = traders[sym].run(part_state) if sym in traders else ([], 0, '')
+            conversions += val
 
-    return results, 1, json.dumps(next_data)
+    return results, conversions, json.dumps(next_data)
 
