@@ -670,27 +670,19 @@ class OrchidModel(AbstractIntervalTrader):
     
     def __init__(self, limit: int):
         super().__init__(limit)
-        self.parameters = {
-            "n1_MACD": 26,
-            "n2_MACD": 12
-        }
-        self.row_dims = max(self.parameters.values())
-
-    def EMA(self, x, alpha):
-        if len(x) == 0:
-            return 1
-        if len(x) == 1:
-            return x[0]
-        return alpha*x[-1] + (1-alpha)*self.EMA(x[:-1], alpha)
+        self.humidity_cache = 32
+        self.sunlight_cache = 16
+        self.dims = 20
 
     def get_price(self) -> int:
-        # d = {
-        #     "humidity": [],
-        #     "humidity_signal": 0, # 1 for bullish, -1 for bearish,
-        #     "sunlight": [],
-        #     "sunlight_signal": 0
-        # }
-        # self.data = self.data if self.data else d
+        d = {
+            "humidity": [],
+            "sunlight": [],
+            "A": [],
+            "y": []
+        }
+        self.data = self.data if self.data else d
+        converstionObservation = self.state.observations.conversionObservations['ORCHIDS']
 
         _, best_sell = self.values_extract(
             OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
@@ -698,54 +690,40 @@ class OrchidModel(AbstractIntervalTrader):
         _, best_buy = self.values_extract(
             OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True)), 1
         )
-        coefs = [3.79540786, 0.03991143]
-        intercept = 695.1697423520967
 
-        sunlight = self.state.observations.conversionObservations['ORCHIDS'].sunlight / 2500
-        humidity = self.state.observations.conversionObservations['ORCHIDS'].humidity 
+        humidity = converstionObservation.humidity
+        sunlight = converstionObservation.sunlight
 
-        next_price = 695.1697423520967 + (sunlight * 0.03991143) + (humidity * 3.79540786)
+        self.data['humidity'].append(humidity)
+        self.data['sunlight'].append(sunlight / 2500)
+        self.data['y'].append((best_buy + best_sell) / 2)
+        if len(self.data['humidity']) > self.humidity_cache:
+            self.data['humidity'].pop(0)
+        if len(self.data['sunlight']) > self.sunlight_cache:
+            self.data['sunlight'].pop(0)
+        if len(self.data['y']) > self.dims:
+            self.data['y'].pop(0)
 
-        logger.print(f'Predicted next price {next_price}')
-        return int(round(next_price))
+        sunlight_MA = np.convolve(self.data['sunlight'][-self.sunlight_cache:], np.ones(self.sunlight_cache) / self.sunlight_cache, mode='valid')[-1]
+        humidity_MA = np.convolve(self.data['humidity'][-self.humidity_cache:], np.ones(self.humidity_cache) / self.humidity_cache, mode='valid')[-1]
 
-        # self.data['humidity'].append(humidity)
-        # self.data['sunlight'].append(sunlight)
-        # if len(self.data['humidity']) > self.row_dims:
-        #     self.data['humidity'].pop(0)
-        #     self.data['sunlight'].pop(0)
-        #     # self.data['humidity_EMA'].pop(0)
-        
-        # alpha_1 = 2 / (self.parameters['n1_MACD'] + 1) # LONGER EMA
-        # alpha_2 = 2 / (self.parameters['n2_MACD'] + 1) #SHORTED EMA
-        # EMA_1 = self.EMA(self.data['humidity'][-self.parameters["n1_MACD"]:], alpha_1)
-        # EMA_2 = self.EMA(self.data['humidity'][-self.parameters["n2_MACD"]:], alpha_2)
-        # MACD = EMA_2 - EMA_1
-        # signal_line = self.EMA(self.data['humidity'][-9:], 2 / (10))
+        indicators = [sunlight_MA, humidity_MA]
+        regresssion_matrix = self.data['A']
+        regresssion_matrix.append(indicators)
 
-        # # IF MACD Crosses above signal_line -> BULLISH
-        # if MACD > signal_line:
-        #     self.data['humidity_signal'] = 1
-        # # IF MACD Corsses below signal_line -> BEARISH
-        # elif MACD < signal_line:
-        #     self.data['humidity_signal'] = -1
+        if len(regresssion_matrix) > self.dims:
+            self.data['A'].pop(0)
 
-        # EMA_1 = self.EMA(self.data['sunlight'][-self.parameters["n1_MACD"]:], alpha_1)
-        # EMA_2 = self.EMA(self.data['sunlight'][-self.parameters["n2_MACD"]:], alpha_2)
-        # MACD = EMA_2 - EMA_1
-        # signal_line = self.EMA(self.data['sunlight'][-9:], 2 / (10))
+        regresssion_matrix = np.array(regresssion_matrix[:10])
+        price_history = np.array([self.data['y'][:10]])
+        price_history = np.reshape(price_history, (len(price_history[0]), 1))
 
-        # # IF MACD Crosses above signal_line -> BULLISH
-        # if MACD > signal_line:
-        #     self.data['sunlight_signal'] = 2.5
-        # # IF MACD Corsses below signal_line -> BEARISH
-        # elif MACD < signal_line:
-        #     self.data['sunlight_signal'] = -2.5
+        model = OrdinaryLeastSquares()
+        model.fit(regresssion_matrix, price_history)
+        fair_price = model.predict(regresssion_matrix[-1])
 
-        # IF PRICE continues to uptrend, but MACD is downtending -> Trend reversal
-        # True for contrary? MUST TEST
-
-        return (best_buy + best_sell) / 2
+        logger.print(f'fair price predicted {fair_price}')
+        return fair_price[0]
 
     def calculate_orders(self, state: PartTradingState, acc_bid: int, acc_ask: int):        
         open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
