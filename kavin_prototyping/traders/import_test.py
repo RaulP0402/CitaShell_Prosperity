@@ -301,11 +301,13 @@ class FixedValueTrader(AbstractIntervalTrader):
         return self.value
 
     def get_orders(self, price):
-        print(self.state.general_order_depth)
-        if self.position == 0:
-            self.buy(10000, self.limit)
-        else:
-            self.export_ext(self.position)
+        if self.state.timestamp % 1000 == 0:
+            obs = self.state.observations.conversionObservations[self.state.product_name]
+            price = obs.askPrice + obs.transportFees + obs.importTariff + 1
+            print(price)
+            self.sell(int(price), 1)
+            self.import_ext(1)
+
 
     def __init__(self, limit, value):
         super().__init__(limit)
@@ -318,4 +320,4 @@ class FixedValueTrader(AbstractIntervalTrader):
 
 class Trader:
     def run(self, state: TradingState):
-        return run_traders({'ORCHIDS': FixedValueTrader(20, 10000)}, state)
+        return run_traders({'ORCHIDS': FixedValueTrader(100, 10000)}, state)
