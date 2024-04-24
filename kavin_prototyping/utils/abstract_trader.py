@@ -4,6 +4,19 @@ import string
 import json
 from dataclasses import dataclass
 
+import heapq
+from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
+import string
+import json
+from dataclasses import dataclass
+from typing import List, Any, Dict, Tuple
+import json
+import numpy as np
+from dataclasses import dataclass
+from collections import OrderedDict
+from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState, UserId
+
+
 @dataclass
 class GeneralOrder:
     price: int
@@ -230,8 +243,7 @@ class AbstractIntervalTrader:
         self.sells = 0
         self.buys = 0
         self.net_import = 0
-        if state.data:
-            self.data = state.data
+        self.data = state.data
         self.orders = []
 
     def cpos(self) -> int:

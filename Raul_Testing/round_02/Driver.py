@@ -1,4 +1,8 @@
-
+from datamodel import OrderDepth,UserId, TradingState, Order, Listing, Trade, Observation, ConversionObservation
+from typing import List, Any, Dict, Tuple
+import string
+import json
+from dataclasses import dataclass
 import heapq
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
 import string
@@ -10,6 +14,90 @@ import numpy as np
 from dataclasses import dataclass
 from collections import OrderedDict
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState, UserId
+
+
+@dataclass
+class GeneralOrder:
+    price: int
+    quantity: int
+    tariff: float | None = None
+
+    @staticmethod
+    def from_observation(
+            obs: ConversionObservation,
+            position: int):
+        if position < 0:
+            price = obs.askPrice + obs.transportFees
+            quantity = -position
+            tariff = obs.importTariff
+        elif position > 0:
+            price = obs.bidPrice - obs.transportFees
+            quantity = position
+            tariff = obs.exportTariff
+
+        return GeneralOrder(
+                price,
+                quantity,
+                tariff
+                )
+
+    def is_international(self):
+        if self.tariff:
+            return True
+        else:
+            return False
+
+    def item(self):
+        return (self.price, self.quantity, self.tariff)
+
+
+
+class GeneralOrderDepth:
+    # A list sorted by price of
+    # buy orders
+    buy_orders: List[GeneralOrder]
+
+    # A list sorted by price of
+    # sell orders
+    sell_orders: List[GeneralOrder]
+
+    def __init__(self, state: TradingState, product: str):
+        sell_orders = []
+        buy_orders = []
+
+        for (ask, vol) in state.order_depths[product].sell_orders.items():
+            sell_orders.append(
+                    GeneralOrder(ask, vol, None)
+                    )
+
+        for (bid, vol) in state.order_depths[product].buy_orders.items():
+            buy_orders.append(
+                    GeneralOrder(bid, vol, None)
+                    )
+
+        if product in state.observations.conversionObservations:
+            obs = state.observations.conversionObservations[product]
+            position = state.position[product] if product in state.position else 0
+
+            if position > 0:
+                # If you have a positive position, this
+                # means that there are people who want to
+                # buy from you in the international market.
+                # so you can export, so you have a buy order
+                buy_orders.append(GeneralOrder.from_observation(obs, position))
+            elif position < 0:
+                # reverse logic for a short position
+                sell_orders.append(GeneralOrder.from_observation(obs, position))
+
+        self.buy_orders = sorted(buy_orders, key = lambda x : x.price)
+        self.sell_orders = sorted(sell_orders, key = lambda x : -x.price)
+
+    def buy_items(self):
+        return [(item.price, item.quantity, item.tariff) for item in self.buy_orders]
+
+    def sell_items(self):
+        return [(item.price, item.quantity, item.tariff) for item in self.sell_orders]
+
 
 @dataclass
 class PartTradingState:
@@ -29,6 +117,9 @@ class PartTradingState:
     # Order depths for this particular product
     order_depth : OrderDepth
 
+    # General Order Depths for this product (including import/export)
+    general_order_depth: GeneralOrderDepth
+
     # own trades for this particular proudct
     own_trades: List[Trade]
 
@@ -45,6 +136,9 @@ class PartTradingState:
     # do some multivar stuff
     full_state: TradingState
 
+    # timestamp
+    timestamp: int
+
     @staticmethod
     def partition_trading_state(state: TradingState, json_data):
         # Partitions Trading State into a dictionary of PartTradingState
@@ -54,11 +148,13 @@ class PartTradingState:
                         data = json_data[sym] if json_data and (sym in json_data) else None, # in the future, this will also be partitioned
                         listings = state.listings,
                         order_depth = state.order_depths[sym],
+                        general_order_depth = GeneralOrderDepth(state, sym),
                         own_trades = state.own_trades[sym] if sym in state.own_trades else [],
                         market_trades = state.market_trades[sym] if sym in state.market_trades else [],
                         position = state.position[sym] if sym in state.position else 0,
                         observations = state.observations,
-                        full_state = state
+                        full_state = state,
+                        timestamp = state.timestamp
                     )
             for sym, _ in state.listings.items()
         }
@@ -91,42 +187,6 @@ class AbstractIntervalTrader:
     state: PartTradingState
     data: Any
     limit: int
-    conversions: int
-
-    def buy(self, price, vol, prod = ""):
-        # Helper function to let you buy without worrying about
-        # position limits
-
-        if not prod:
-            prod = self.state.product_name
-
-        vol = min(vol, self.limit - self.position - self.buys)
-        if vol > 0:
-            #print(f"Buy {self.state.product_name} - {vol}")
-            self.orders.append(Order(prod, price, vol))
-            self.buys += vol
-
-    def sell(self, price, vol, prod = ""):
-        # Helper function to let you sell without worrying about
-        # position limits
-
-        if not prod:
-            prod = self.state.product_name
-
-        vol =  max(-vol, -self.position - self.limit - self.sells)
-        if vol < 0:
-            #(f"Sell {self.state.product_name} - {-vol}")
-            self.orders.append(Order(prod, price, vol))
-            self.sells += vol
-
-    def setup(self, state: PartTradingState):
-        self.state = state
-        self.position = state.position
-        self.data = state.data
-        self.orders = []
-        self.buys = 0
-        self.sells = 0
-        self.conversions = 0
 
     def values_extract(self, order_dict, buy=0):
         tot_vol = 0
@@ -143,22 +203,84 @@ class AbstractIntervalTrader:
 
         return tot_vol, best_val
 
+    def buy(self, price, vol, prod = ""):
+        # Helper function to let you buy without worrying about
+        # position limits
+
+        if not prod:
+            prod = self.state.product_name
+
+        vol = min(vol, self.limit - self.position - self.buys)
+        if vol > 0:
+            print(f"Buy {self.state.product_name} - {vol}")
+            self.orders.append(Order(prod, price, vol))
+            self.buys += vol
+
+    def sell(self, price, vol, prod = ""):
+        # Helper function to let you sell without worrying about
+        # position limits
+
+        if not prod:
+            prod = self.state.product_name
+
+        vol =  max(-vol, -self.position - self.limit - self.sells)
+        if vol < 0:
+            print(f"Sell {self.state.product_name} - {-vol}")
+            self.orders.append(Order(prod, price, vol))
+            self.sells += vol
+
+    def import_ext(self, quantity) -> int:
+        # returns how much you successfully
+        # imported
+        if self.position >= 0:
+            return 0
+
+        old_imports = self.net_import
+
+        self.net_import = min(quantity + self.net_import, -self.position)
+
+        return self.net_import - old_imports
+
+    def export_ext(self, quantity) -> int:
+        if self.position <= 0:
+            return 0
+
+        old_imports = self.net_import
+
+        self.net_import = max(self.net_import - quantity, -self.position)
+
+        return -(self.net_import - old_imports)
+
+    def setup(self, state: PartTradingState):
+        self.state = state
+        self.position = state.position
+        self.sells = 0
+        self.buys = 0
+        self.net_import = 0
+        self.data = state.data
+        self.orders = []
+
+    def cpos(self) -> int:
+        return self.position + self.buys - self.sells
+
     def run(self, state: PartTradingState):
         self.setup(state)
 
         pred_price = self.get_price()
 
-        # print(f'Cnversions before {self.conversions}')
-        if pred_price > 0:
-            self.calculate_orders(state, pred_price - 1, pred_price + 1)
+        self.get_orders(pred_price)
 
-        # print(f'Conversions after {self.conversions}')
-        return self.orders[:], self.conversions, self.data
+        return self.orders[:], self.net_import, self.data
 
     def get_price(self) -> int:
         ## Define some function using self.state to get the price you wanna trade at
         raise NotImplementedError
 
+    def get_orders(self, price) -> None:
+        # Use self.buy, self.sell, self.import
+        # and self.export to do as the names
+        # suggest
+        pass
 
     def __init__(self, limit: int):
         self.limit = abs(limit)
@@ -174,16 +296,17 @@ def run_traders(traders: Dict[str, AbstractIntervalTrader], state: TradingState)
 
     part = PartTradingState.partition_trading_state(state, j_data)
     results = {}
+    conversions = 0
     next_data = {}
-    total_converstions = 0
 
     for (sym, part_state) in part.items():
         if sym in traders:
-            results[sym],converstions, next_data[sym] = traders[sym].run(part_state) if sym in traders else ([], '')
-            total_converstions += converstions
+            results[sym], val, next_data[sym] = traders[sym].run(part_state) if sym in traders else ([], 0, '')
+            conversions += val
 
     logger.flush(state, results, 0, "")
-    return results, total_converstions , json.dumps(next_data)
+    return results, conversions, json.dumps(next_data)
+
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # JASPERS LOGGER
@@ -209,13 +332,13 @@ class Logger:
         # We truncate state.traderData, trader_data, and self.logs to the same max. length to fit the log limit
         max_item_length = (self.max_log_length - base_length) // 3
 
-        # print(self.to_json([
-        #     self.compress_state(state, self.truncate(state.traderData, max_item_length)),
-        #     self.compress_orders(orders),
-        #     conversions,
-        #     self.truncate(trader_data, max_item_length),
-        #     self.truncate(self.logs, max_item_length),
-        # ]))
+        print(self.to_json([
+            self.compress_state(state, self.truncate(state.traderData, max_item_length)),
+            self.compress_orders(orders),
+            conversions,
+            self.truncate(trader_data, max_item_length),
+            self.truncate(self.logs, max_item_length),
+        ]))
 
         self.logs = ""
 
@@ -297,10 +420,11 @@ logger = Logger()
 class Trader:
     def run(self, state: TradingState):
 
-        return run_traders({'AMETHYSTS': FixedValueTrader(20, 10000),
-                            'STARFRUIT': ARIMAModel(20),
-                            #'ORCHIDS': OrchidModel(100)
+        return run_traders({#'AMETHYSTS': FixedValueTrader(20, 10000),
+                            #'STARFRUIT': ARIMAModel(20),
+                            'ORCHIDS': ORCHIDModel(100)
                             }, state)
+
 
 """
 Linear Regression
@@ -456,331 +580,78 @@ class ARIMA(LinearModel):
         return self.return_output(y)
 
 
-class ARIMAModel(AbstractIntervalTrader):
+class ORCHIDModel(AbstractIntervalTrader):
 
     def __init__(self, limit):
         super().__init__(limit)
         # self.starfruit_cache = []
-        self.starfruit_dim = 4
+        self.dims = 4
 
-    def calculate_orders(self, state: PartTradingState, acc_bid: int, acc_ask: int):
+    def get_orders(self, pred_price: int):
         open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
         open_buys = OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True))
 
-        _, best_sell_pr = self.values_extract(open_sells)
-        _, best_buy_pr = self.values_extract(open_buys, 1)
-
-        cpos = self.position
-
-        for ask, vol in open_sells.items():
-            if ((ask <= acc_bid) or (self.position < 0 and ask == acc_bid + 1)) and cpos < self.limit:
-                order_for = min(-vol, self.limit - cpos)
-                self.orders.append(Order(self.state.product_name, ask, order_for))
-                cpos += order_for
-
-        undercut_buy = best_buy_pr + 1
-        undercut_sell = best_sell_pr - 1
-
-        bid_pr = min(undercut_buy, acc_bid)
-        sell_pr = max(undercut_sell, acc_ask)
-
-        if cpos < self.limit:
-            num = self.limit - cpos
-            self.orders.append(Order(self.state.product_name, bid_pr, num))
-            cpos += num
-
+        converstionObservation = self.state.observations.conversionObservations['ORCHIDS']
         
+        self.import_ext(100)
+
         cpos = self.position
         for bid, vol in open_buys.items():
-            if ((bid >= acc_ask) or (self.position > 0 and bid + 1 == acc_ask)) and cpos > -self.limit:
+            if bid > pred_price:
                 order_for = max(-vol, -self.limit - cpos)
                 self.orders.append(Order(self.state.product_name, bid, order_for))
                 cpos += order_for
 
-        if cpos > -self.limit:
-            num = -self.limit - cpos
-            self.orders.append(Order(self.state.product_name, sell_pr, num))
-            cpos += num
-
-
     def get_price(self) -> int:
         d = {
-            "starfruit_cache": []
+            "import_cache": []
         }
         self.data = self.data if self.data else d
 
-        if len(self.data['starfruit_cache']) == self.starfruit_dim:
-            self.data['starfruit_cache'].pop(0)
+        if len(self.data['import_cache']) == self.dims:
+            self.data['import_cache'].pop(0)
         
-        _, best_sell = self.values_extract(
-            OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
+        converstionObservation = self.state.observations.conversionObservations['ORCHIDS']
+        self.data['import_cache'].append(
+            converstionObservation.askPrice + converstionObservation.importTariff 
         )
-        _, best_buy = self.values_extract(
-            OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True)), 1
-        )
-        self.data['starfruit_cache'].append((best_sell + best_buy) / 2)
 
-        if len(self.data["starfruit_cache"]) < self.starfruit_dim:
+        if len(self.data['import_cache']) < self.dims:
             return 0
 
         model = ARIMA(4,0,4)
-        pred = model.fit_predict(self.data['starfruit_cache'])
+        pred = model.fit_predict(self.data['import_cache'])
         forecasted_price = model.forecast(pred, 1)[-1]
 
-
-
         return int(round(forecasted_price))
-from typing import List, Any, Dict, Tuple
-import json
-import numpy as np
-from dataclasses import dataclass
-from collections import OrderedDict
-from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState, UserId
-
-# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-# FIXED VALUE TRADER
-# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-class FixedValueTrader(AbstractIntervalTrader):
-
-    def __init__(self, limit, value):
-        super().__init__(limit)
-        self.value = value
-
-    def get_price(self):
-        # Note that I have access to self.state here as well
-        return self.value
-
-    def next_state(self):
-        return "None"
-
-    
-    def calculate_orders(self, state: PartTradingState, acc_bid: int, acc_ask: int):
-        open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
-        open_buys = OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True))
-        acc_ask, acc_bid = 10000, 10000
-
-        _, best_sell_pr = self.values_extract(open_sells)
-        _, best_buy_pr = self.values_extract(open_buys, 1)
-        cpos = self.position
-
-        for ask, vol in open_sells.items():
-            if ((ask < acc_bid) or (self.position < 0 and ask == acc_bid)) and cpos < self.limit:
-                # self.buy(ask, -vol)
-                order_for = min(-vol, self.limit - cpos)
-                self.orders.append(Order(self.state.product_name, int(round(ask)), order_for))
-                cpos += order_for
-
-        undercut_buy = best_buy_pr + 1
-        undercut_sell = best_sell_pr - 1
-
-        bid_pr = min(undercut_buy, acc_bid - 2)
-        sell_pr = max(undercut_sell, acc_ask + 2)
-
-        if (cpos < self.limit) and (self.position < 0):
-            num = min(40, self.limit - cpos)
-            self.orders.append(Order(
-                self.state.product_name, min(undercut_buy + 1, acc_bid - 1), num
-                ))
-            cpos += num
-        
-        if (cpos < self.limit) and (self.position > 15):
-            num = min(40, self.limit - cpos)
-            self.orders.append(Order(
-                self.state.product_name, min(undercut_buy -1, acc_bid -1), num
-            ))
-            cpos += num
-
-        if cpos < self.limit:
-            num = min(40, self.limit - cpos)
-            self.orders.append(Order(
-                self.state.product_name, int(round(bid_pr)), num
-            ))
-            cpos += num
-        
-        cpos = self.position
-
-        for bid, vol in open_buys.items():
-            if ((bid > acc_ask) or (self.position > 0 and bid == acc_ask)) and cpos > -self.limit:
-                order_for = max(-vol, -self.limit - cpos)
-                self.orders.append(Order(
-                    self.state.product_name, bid, order_for
-                ))
-                cpos += order_for
-
-        if (cpos > -self.limit) and (self.position > 0):
-            num = max(-40, -self.limit - cpos)
-            self.orders.append(Order(
-                self.state.product_name, max(undercut_sell - 1, acc_ask + 1), num
-            ))
-            cpos += num
-
-        if (cpos > -self.limit) and (self.position < -15):
-            num = max(-40, -self.limit - cpos)
-            self.orders.append(Order(
-                self.state.product_name, max(undercut_sell + 1, acc_ask + 1), num
-            ))
-            cpos += num
-
-        if cpos > -self.limit:
-            num = max(-40, -self.limit - cpos)
-            self.orders.append(Order(
-                self.state.product_name, sell_pr, num
-            ))
-            cpos += num
-        
 
 
-def EMA(x, alpha):
-    if len(x) == 0:
-        return 1
-    if len(x) == 1:
-        return x[0]
-    return alpha*x[-1] + (1-alpha)*EMA(x[:-1], alpha)
+# def run(self, state):
+#     for product, order_depth in state.order_depths.items():  # dict[str, OrderDepth]
+#         if product == "ORCHIDS":
+#             orders: list[Order] = []
+#             result = {}
+#             trader_data = ''
+#             conversions = 0
+#             time = state.timestamp
+#             x = []
+#             x.append(state.observations.conversionObservations['ORCHIDS'].askPrice)
+#             mid_price = (state.observations.conversionObservations['ORCHIDS'].bidPrice + state.observations.conversionObservations['ORCHIDS'].askPrice) / 2
+#             predicted_price = x[-1]
 
-class OrdinaryLeastSquares():
+#             if mid_price > predicted_price:
+#                 # Buy order
+#                 order = Order(product, state.observations.conversionObservations[product].askPrice, 10, OrderType.BUY)
+#                 orders.append(order)
+#             elif mid_price < predicted_price:
+#                 # Sell order
+#                 order = Order(product, state.observations.conversionObservations[product].bidPrice, 10, OrderType.SELL)
+#                 orders.append(order)
 
-    def __init__(self):
-        self.coef = []
+#             result = {
+#                 'orders': orders,
+#                 'trader_data': trader_data,
+#                 'conversions': conversions
+#             }
 
-    def _reshape_x(self, X):
-        return X.reshape(-1, 1)
-
-    def _concatenate_ones(self, X):
-        X_with_intercept = np.concatenate((np.ones((X.shape[0], 1)), X), axis=1)
-
-        return X_with_intercept
-
-
-    def fit(self, X, y):
-        X = self._concatenate_ones(X)
-        self.coef = np.linalg.pinv(X.transpose().dot(X)).dot(X.transpose()).dot(y)
-
-    def predict(self, entry):
-        b0 = self.coef[0]
-        other_betas = self.coef[1:]
-        prediction = b0
-
-        for xi, bi in zip(entry, other_betas):
-            prediction += (bi*xi)
-
-        return prediction
-
-class OrchidModel(AbstractIntervalTrader):
-    
-    def __init__(self, limit: int):
-        super().__init__(limit)
-        self.parameters = {
-            "n1_MACD": 26,
-            "n2_MACD": 12
-        }
-        self.row_dims = max(self.parameters.values())
-
-    def EMA(self, x, alpha):
-        if len(x) == 0:
-            return 1
-        if len(x) == 1:
-            return x[0]
-        return alpha*x[-1] + (1-alpha)*self.EMA(x[:-1], alpha)
-
-    def get_price(self) -> int:
-        d = {
-            "humidity": [],
-            "humidity_signal": None, # 1 for bullish, -1 for bearish,
-            "sunlight": [],
-            "sunlight_signal": None
-        }
-        self.data = self.data if self.data else d
-
-        _, best_sell = self.values_extract(
-            OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
-        )
-        _, best_buy = self.values_extract(
-            OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True)), 1
-        )
-
-
-        sunlight = self.state.observations.conversionObservations['ORCHIDS'].sunlight / 2500
-        humidity = self.state.observations.conversionObservations['ORCHIDS'].humidity 
-
-        self.data['humidity'].append(humidity)
-        self.data['sunlight'].append(sunlight)
-        if len(self.data['humidity']) > self.row_dims:
-            self.data['humidity'].pop(0)
-            self.data['sunlight'].pop(0)
-            # self.data['humidity_EMA'].pop(0)
-        
-        alpha_1 = 2 / (self.parameters['n1_MACD'] + 1) # LONGER EMA
-        alpha_2 = 2 / (self.parameters['n2_MACD'] + 1) #SHORTED EMA
-        EMA_1 = self.EMA(self.data['humidity'][-self.parameters["n1_MACD"]:], alpha_1)
-        EMA_2 = self.EMA(self.data['humidity'][-self.parameters["n2_MACD"]:], alpha_2)
-        MACD = EMA_2 - EMA_1
-        signal_line = self.EMA(self.data['humidity'][-9:], 2 / (10))
-
-        # IF MACD Crosses above signal_line -> BULLISH
-        if MACD > signal_line:
-            if not self.data['humidity_signal']:
-                self.data['humidity_signal'] = 1 
-            else:
-                if self.data['humidity_signal'] == 1:
-                    self.data['humidity_signal'] = 1
-                elif self.data['humidity_signal'] == -1:
-                    self.data['humidity_signal'] = 2
-        # IF MACD Corsses below signal_line -> BEARISH
-        elif MACD < signal_line:
-            if not self.data['humidity_signal']:
-                self.data['humidity_signal'] = -1
-            else:
-                if self.data['humidity_signal'] == -1:
-                    self.data['humidity_signal'] = -1
-                elif self.data['humidity_signal'] == 1:
-                    self.data['humidity_signal'] = -2
-
-        # EMA_1 = self.EMA(self.data['sunlight'][-self.parameters["n1_MACD"]:], alpha_1)
-        # EMA_2 = self.EMA(self.data['sunlight'][-self.parameters["n2_MACD"]:], alpha_2)
-        # MACD = EMA_2 - EMA_1
-        # signal_line = self.EMA(self.data['sunlight'][-9:], 2 / (10))
-
-        # # IF MACD Crosses above signal_line -> BULLISH
-        # if MACD > signal_line:
-        #     self.data['sunlight_signal'] = 2.5
-        # # IF MACD Corsses below signal_line -> BEARISH
-        # elif MACD < signal_line:
-        #     self.data['sunlight_signal'] = -2.5
-
-        # IF PRICE continues to uptrend, but MACD is downtending -> Trend reversal
-        # True for contrary? MUST TEST
-
-        return (best_buy + best_sell) / 2
-
-    def calculate_orders(self, state: PartTradingState, acc_bid: int, acc_ask: int):        
-        open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
-        open_buys = OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True))
-
-        # PRODUCTION = 100 - (.02 * self.data['humidity_effect'])
-
-        converstionObservation = self.state.observations.conversionObservations['ORCHIDS']
-        # total_production = self.data['humidity_signal'] + self.data['sunlight_signal']
-
-        cpos = self.position
-        if cpos != 0 and abs(self.data['humidity_signal']) == 2:
-            self.conversions = -cpos
-            cpos = 0
-
-        # BULLISH, buy
-        if self.data['humidity_signal'] > 0:
-            for ask, vol in open_sells.items():
-                if cpos < self.limit:
-                    order_for = min(-vol, self.limit - cpos)
-                    self.orders.append(Order(self.state.product_name, ask, order_for))
-                    cpos += order_for
-        
-        cpos = self.position
-        # BEARISH, sell
-        if self.data['humidity_signal'] < 0:
-            for bid, vol in open_buys.items():
-                if cpos > -self.limit:
-                    order_for = max(-vol, -self.limit - cpos)
-                    self.orders.append(Order(self.state.product_name, bid, order_for))
-                    cpos += order_for
-
+#             return result

@@ -676,13 +676,13 @@ class OrchidModel(AbstractIntervalTrader):
 
     def get_price(self) -> int:
         d = {
-            "humidity": [],
-            "sunlight": [],
-            "A": [],
-            "y": []
+            "humidity": None,
+            "sunlight": 0,
+            'sunlight_avg': None
         }
         self.data = self.data if self.data else d
         converstionObservation = self.state.observations.conversionObservations['ORCHIDS']
+        mid_price = (converstionObservation.bidPrice + converstionObservation.askPrice) / 2    
 
         _, best_sell = self.values_extract(
             OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
@@ -691,75 +691,16 @@ class OrchidModel(AbstractIntervalTrader):
             OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True)), 1
         )
 
-        humidity = converstionObservation.humidity
-        sunlight = converstionObservation.sunlight
-
-        self.data['humidity'].append(humidity)
-        self.data['sunlight'].append(sunlight / 2500)
-        self.data['y'].append((best_buy + best_sell) / 2)
-        if len(self.data['humidity']) > self.humidity_cache:
-            self.data['humidity'].pop(0)
-        if len(self.data['sunlight']) > self.sunlight_cache:
-            self.data['sunlight'].pop(0)
-        if len(self.data['y']) > self.dims:
-            self.data['y'].pop(0)
-
-        sunlight_MA = np.convolve(self.data['sunlight'][-self.sunlight_cache:], np.ones(self.sunlight_cache) / self.sunlight_cache, mode='valid')[-1]
-        humidity_MA = np.convolve(self.data['humidity'][-self.humidity_cache:], np.ones(self.humidity_cache) / self.humidity_cache, mode='valid')[-1]
-
-        indicators = [sunlight_MA, humidity_MA]
-        regresssion_matrix = self.data['A']
-        regresssion_matrix.append(indicators)
-
-        if len(regresssion_matrix) > self.dims:
-            self.data['A'].pop(0)
-
-        regresssion_matrix = np.array(regresssion_matrix[:10])
-        price_history = np.array([self.data['y'][:10]])
-        price_history = np.reshape(price_history, (len(price_history[0]), 1))
-
-        model = OrdinaryLeastSquares()
-        model.fit(regresssion_matrix, price_history)
-        fair_price = model.predict(regresssion_matrix[-1])
-
-        logger.print(f'fair price predicted {fair_price}')
-        return fair_price[0]
+        return int(round(mid_price))
 
     def calculate_orders(self, state: PartTradingState, acc_bid: int, acc_ask: int):        
         open_sells = OrderedDict(sorted(self.state.order_depth.sell_orders.items()))
         open_buys = OrderedDict(sorted(self.state.order_depth.buy_orders.items(), reverse=True))
+        converstionObservation = self.state.observations.conversionObservations['ORCHIDS']
+        humidity = converstionObservation.humidity
 
-        _, best_sell_pr = self.values_extract(open_sells)
-        _, best_buy_pr = self.values_extract(open_buys, 1)
 
-        cpos = self.position
-
-        for ask, vol in open_sells.items():
-            if ((ask <= acc_bid) or (self.position < 0 and ask == acc_bid + 1)) and cpos < self.limit:
-                order_for = min(-vol, self.limit - cpos)
-                self.orders.append(Order(self.state.product_name, ask, order_for))
-                cpos += order_for
-
-        undercut_buy = best_buy_pr + 1
-        undercut_sell = best_sell_pr - 1
-
-        bid_pr = min(undercut_buy, acc_bid)
-        sell_pr = max(undercut_sell, acc_ask)
-
-        if cpos < self.limit:
-            num = self.limit - cpos
-            self.orders.append(Order(self.state.product_name, bid_pr, num))
-            cpos += num
-
-        
-        cpos = self.position
-        for bid, vol in open_buys.items():
-            if ((bid >= acc_ask) or (self.position > 0 and bid + 1 == acc_ask)) and cpos > -self.limit:
-                order_for = max(-vol, -self.limit - cpos)
-                self.orders.append(Order(self.state.product_name, bid, order_for))
-                cpos += order_for
-
-        if cpos > -self.limit:
-            num = -self.limit - cpos
-            self.orders.append(Order(self.state.product_name, sell_pr, num))
-            cpos += num
+        if 60 <= humidity <= 80:
+            self.orders.append(Order(self.state.product_name, acc_ask, -5))
+        elif not (60 <= humidity <=80) or self.position == -self.limit:
+            self.conversions = -self.position

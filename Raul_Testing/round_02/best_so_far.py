@@ -209,13 +209,13 @@ class Logger:
         # We truncate state.traderData, trader_data, and self.logs to the same max. length to fit the log limit
         max_item_length = (self.max_log_length - base_length) // 3
 
-        # print(self.to_json([
-        #     self.compress_state(state, self.truncate(state.traderData, max_item_length)),
-        #     self.compress_orders(orders),
-        #     conversions,
-        #     self.truncate(trader_data, max_item_length),
-        #     self.truncate(self.logs, max_item_length),
-        # ]))
+        print(self.to_json([
+            self.compress_state(state, self.truncate(state.traderData, max_item_length)),
+            self.compress_orders(orders),
+            conversions,
+            self.truncate(trader_data, max_item_length),
+            self.truncate(self.logs, max_item_length),
+        ]))
 
         self.logs = ""
 
@@ -297,8 +297,8 @@ logger = Logger()
 class Trader:
     def run(self, state: TradingState):
 
-        return run_traders({#'AMETHYSTS': FixedValueTrader(20, 10000),
-                            #'STARFRUIT': ARIMAModel(20),
+        return run_traders({'AMETHYSTS': FixedValueTrader(20, 10000),
+                            'STARFRUIT': ARIMAModel(20),
                             'ORCHIDS': OrchidModel(100)
                             }, state)
 
@@ -747,27 +747,117 @@ class OrchidModel(AbstractIntervalTrader):
 
         # PRODUCTION = 100 - (.02 * self.data['humidity_effect'])
 
-        converstionObservation = self.state.observations.conversionObservations['ORCHIDS']
+        # REALLY BULLISH
+        if self.data['humidity_signal'] == 1 and self.data['sunlight_signal'] == 2.5:
+            cpos = self.position
+            if cpos < 0:
+                self.conversions = -cpos
+                cpos = 0
 
-        # cpos = self.position
-        # if cpos != 0:
-        #     self.conversions = -cpos
-        #     cpos = 0
-
-        # BULLISH, buy
-        if self.data['humidity_signal'] == 1:
+            # cpos = self.position
             for ask, vol in open_sells.items():
                 if cpos < self.limit:
                     order_for = min(-vol, self.limit - cpos)
                     self.orders.append(Order(self.state.product_name, ask, order_for))
                     cpos += order_for
-        
-        cpos = self.position
-        # BEARISH, sell
-        if self.data['humidity_signal'] == -1:
+            
+            _, best_sell_pr = self.values_extract(open_sells)
+            _, best_buy_pr = self.values_extract(open_buys, 1)
+            undercut_buy = best_buy_pr + 1
+            undercut_sell = best_sell_pr - 1
+
+            bid_pr = min(undercut_buy, acc_bid)
+            sell_pr = max(undercut_sell, acc_ask)
+
+            if cpos < self.limit:
+                num = self.limit - cpos
+                self.orders.append(Order(self.state.product_name, bid_pr, num))
+                cpos += num
+
+        # SEMI BULLISH
+        if self.data['sunlight_signal'] == 2.5 and self.data['humidity_signal'] == -1:
+            cpos = self.position
+            if cpos < 0:
+                self.conversions = -cpos
+                cpos = 0
+
+            for ask, vol in open_sells.items():
+                if cpos < self.limit:
+                    order_for = min(-vol, self.limit - cpos)
+                    self.orders.append(Order(self.state.product_name, ask, order_for))
+                    cpos += order_for
+            
+            _, best_sell_pr = self.values_extract(open_sells)
+            _, best_buy_pr = self.values_extract(open_buys, 1)
+            undercut_buy = best_buy_pr + 2
+            undercut_sell = best_sell_pr - 2
+
+            bid_pr = min(undercut_buy, acc_bid)
+            sell_pr = max(undercut_sell, acc_ask)
+
+            if cpos < self.limit:
+                num = self.limit - cpos
+                self.orders.append(Order(self.state.product_name, bid_pr, num))
+                cpos += num
+
+        # REALLY BREARISH
+        if self.data['humidity_signal'] == -1 and self.data['sunlight_signal'] == -2.5:
+            cpos = self.position
             for bid, vol in open_buys.items():
                 if cpos > -self.limit:
                     order_for = max(-vol, -self.limit - cpos)
                     self.orders.append(Order(self.state.product_name, bid, order_for))
                     cpos += order_for
+
+            _, best_sell_pr = self.values_extract(open_sells)
+            _, best_buy_pr = self.values_extract(open_buys, 1)
+            undercut_buy = best_buy_pr + 1
+            undercut_sell = best_sell_pr - 1
+
+            bid_pr = min(undercut_buy, acc_bid)
+            sell_pr = max(undercut_sell, acc_ask)
+
+            if cpos > -self.limit:
+                num = -self.limit - cpos
+                self.orders.append(Order(self.state.product_name, sell_pr, num))
+                cpos += num
+
+        # Semi BREARISH
+        if self.data['humidity_signal'] == 1 and self.data['sunlight_signal'] == -2.5:
+            cpos = self.position
+            for bid, vol in open_buys.items():
+                if cpos > -self.limit:
+                    order_for = max(-vol, -self.limit - cpos)
+                    self.orders.append(Order(self.state.product_name, bid, order_for))
+                    cpos += order_for
+
+            _, best_sell_pr = self.values_extract(open_sells)
+            _, best_buy_pr = self.values_extract(open_buys, 1)
+            undercut_buy = best_buy_pr + 2
+            undercut_sell = best_sell_pr - 2
+
+            bid_pr = min(undercut_buy, acc_bid)
+            sell_pr = max(undercut_sell, acc_ask)
+
+            if cpos > -self.limit:
+                num = -self.limit - cpos
+                self.orders.append(Order(self.state.product_name, sell_pr, num))
+                cpos += num
+
+        # # BULLISH, buy
+        # if self.data['humidity_signal'] == 1:
+        #     for ask, vol in open_sells.items():
+        #         if cpos < self.limit:
+        #             order_for = min(-vol, self.limit - cpos)
+        #             self.orders.append(Order(self.state.product_name, ask, order_for))
+        #             cpos += order_for
+        
+        # cpos = self.position
+        # # BEARISH, sell
+        # if self.data['humidity_signal'] == -1:
+        #     for bid, vol in open_buys.items():
+        #         if cpos > -self.limit:
+        #             order_for = max(-vol, -self.limit - cpos)
+        #             self.orders.append(Order(self.state.product_name, bid, order_for))
+        #             cpos += order_for
 
